@@ -25,13 +25,14 @@ const savePngBtn = document.getElementById('savePng');
 const saveSvgBtn = document.getElementById('saveSvg');
 const toolPen = document.getElementById('tool-pen');
 const toolEraser = document.getElementById('tool-eraser');
+const bgColorInput = document.getElementById('bgColor');
 const ossLink = document.getElementById('ossLink');
 
 ossLink.href = 'https://opensource.org/license/mit';
 ossLink.textContent = 'Open Source (MIT)';
 
 /* Canvas 2D Context */
-const ctx = canvas.getContext('2d', { alpha: true, desynchronized: false, willReadFrequently: false });
+const ctx = canvas.getContext('2d', { alpha: true, desynchronized: true, willReadFrequently: false });
 
 /* State */
 let dpr = Math.max(1, window.devicePixelRatio || 1);
@@ -39,6 +40,9 @@ let isDrawing = false;
 let lastPoint = null;
 let currentStroke = null;
 let needsFullRedraw = true;
+let bgColor = bgColorInput ? bgColorInput.value : '#ffffff';
+canvas.style.backgroundColor = bgColor;
+canvas.style.backgroundColor = bgColor;
 
 /* History stacks */
 const history = [];      // Array<Stroke>
@@ -200,6 +204,37 @@ function startStroke(evt) {
 function extendStroke(evt) {
   if (!isDrawing || !currentStroke) return;
   const { x, y, p } = getPos(evt);
+
+  // Previous point in the current stroke
+  const prev = currentStroke.points[currentStroke.points.length - 1];
+
+  // If no previous point (edge case), start with this one
+  if (!prev) {
+    const first = { x, y, p };
+    currentStroke.points.push(first);
+    drawStroke(currentStroke, true);
+    lastPoint = first;
+    return;
+  }
+
+  const dx = x - prev.x;
+  const dy = y - prev.y;
+  const dist = Math.hypot(dx, dy);
+
+  // Densify points based on brush size to keep lines continuous even with low event rates
+  const spacing = Math.max(0.5, currentStroke.size * 0.35);
+  const steps = Math.floor(dist / spacing);
+
+  if (steps > 0) {
+    for (let i = 1; i <= steps; i++) {
+      const t = i / (steps + 1);
+      const ipt = { x: prev.x + dx * t, y: prev.y + dy * t, p: lerp(prev.p, p, t) };
+      currentStroke.points.push(ipt);
+      // Draw each interpolated segment to avoid gaps
+      drawStroke(currentStroke, true);
+    }
+  }
+
   const pt = { x, y, p };
   currentStroke.points.push(pt);
   drawStroke(currentStroke, true);
@@ -225,6 +260,15 @@ sizeVal.textContent = `${sizeInput.value} px`;
 sizeInput.addEventListener('input', () => {
   sizeVal.textContent = `${sizeInput.value} px`;
 });
+
+// Background color control
+if (bgColorInput) {
+  bgColorInput.addEventListener('input', () => {
+    bgColor = bgColorInput.value;
+    canvas.style.backgroundColor = bgColor;
+    fullRedraw();
+  });
+}
 
 undoBtn.addEventListener('click', () => {
   if (history.length === 0) return;
@@ -256,7 +300,7 @@ savePngBtn.addEventListener('click', () => {
 });
 
 saveSvgBtn.addEventListener('click', () => {
-  const svg = strokesToSVG(history, canvas.clientWidth, canvas.clientHeight);
+  const svg = strokesToSVG(history, canvas.clientWidth, canvas.clientHeight, bgColor);
   const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
@@ -286,6 +330,8 @@ window.addEventListener('keydown', (e) => {
 /* Pointer events */
 canvas.addEventListener('pointerdown', startStroke);
 canvas.addEventListener('pointermove', extendStroke);
+// High-frequency updates for supported devices (e.g., pens)
+canvas.addEventListener('pointerrawupdate', extendStroke);
 canvas.addEventListener('pointerup', endStroke);
 canvas.addEventListener('pointercancel', endStroke);
 canvas.addEventListener('pointerleave', endStroke);
@@ -349,6 +395,7 @@ function strokesToSVG(strokes, width, height) {
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
   <defs></defs>
+  ${bg ? `<rect width="100%" height="100%" fill="${esc(bg)}"/>` : ''}
   ${paths}
 </svg>`;
 }
