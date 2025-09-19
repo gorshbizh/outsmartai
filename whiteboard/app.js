@@ -23,10 +23,24 @@ const redoBtn = document.getElementById('redo');
 const clearBtn = document.getElementById('clear');
 const savePngBtn = document.getElementById('savePng');
 const saveSvgBtn = document.getElementById('saveSvg');
+const analyzeBtn = document.getElementById('analyze-btn');
 const toolPen = document.getElementById('tool-pen');
 const toolEraser = document.getElementById('tool-eraser');
 const bgColorInput = document.getElementById('bgColor');
 const ossLink = document.getElementById('ossLink');
+
+// Results panel elements
+const resultsPanel = document.getElementById('results-panel');
+const closeResultsBtn = document.getElementById('close-results');
+const resultsLoading = document.getElementById('results-loading');
+const resultsData = document.getElementById('results-data');
+const resultsError = document.getElementById('results-error');
+const textRecognition = document.getElementById('text-recognition');
+const visualElements = document.getElementById('visual-elements');
+const contentAnalysis = document.getElementById('content-analysis');
+const suggestionsList = document.getElementById('suggestions-list');
+const confidenceFill = document.getElementById('confidence-fill');
+const confidenceText = document.getElementById('confidence-text');
 
 ossLink.href = 'https://opensource.org/license/mit';
 ossLink.textContent = 'Open Source (MIT)';
@@ -309,6 +323,144 @@ saveSvgBtn.addEventListener('click', () => {
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 });
+
+// Analyze with AI functionality
+analyzeBtn.addEventListener('click', async () => {
+  if (history.length === 0) {
+    alert('Please draw something on the whiteboard first!');
+    return;
+  }
+  
+  try {
+    analyzeBtn.disabled = true;
+    analyzeBtn.textContent = 'Analyzing...';
+    
+    // Show results panel and loading state
+    showResultsPanel();
+    showLoading();
+    
+    // Convert canvas to blob
+    const blob = await new Promise(resolve => {
+      canvas.toBlob(resolve, 'image/png', 0.9);
+    });
+    
+    // Create FormData and send to server
+    const formData = new FormData();
+    formData.append('image', blob, `whiteboard-${Date.now()}.png`);
+    
+    const response = await fetch('/api/process-image', {
+      method: 'POST',
+      body: formData
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Server error: ${response.status}`);
+    }
+    
+    const result = await response.json();
+    
+    if (result.success) {
+      displayResults(result.analysis);
+    } else {
+      throw new Error(result.error || 'Unknown error occurred');
+    }
+    
+  } catch (error) {
+    console.error('Analysis error:', error);
+    showError();
+  } finally {
+    analyzeBtn.disabled = false;
+    analyzeBtn.textContent = 'Analyze with AI';
+  }
+});
+
+// Results panel management
+closeResultsBtn.addEventListener('click', () => {
+  hideResultsPanel();
+});
+
+// Close panel when clicking outside
+resultsPanel.addEventListener('click', (e) => {
+  if (e.target === resultsPanel) {
+    hideResultsPanel();
+  }
+});
+
+// ESC key to close panel
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !resultsPanel.classList.contains('hidden')) {
+    hideResultsPanel();
+  }
+});
+
+function showResultsPanel() {
+  resultsPanel.classList.remove('hidden');
+}
+
+function hideResultsPanel() {
+  resultsPanel.classList.add('hidden');
+  hideLoading();
+  hideResults();
+  hideError();
+}
+
+function showLoading() {
+  hideResults();
+  hideError();
+  resultsLoading.classList.remove('hidden');
+}
+
+function hideLoading() {
+  resultsLoading.classList.add('hidden');
+}
+
+function showResults() {
+  hideLoading();
+  hideError();
+  resultsData.classList.remove('hidden');
+}
+
+function hideResults() {
+  resultsData.classList.add('hidden');
+}
+
+function showError() {
+  hideLoading();
+  hideResults();
+  resultsError.classList.remove('hidden');
+}
+
+function hideError() {
+  resultsError.classList.add('hidden');
+}
+
+function displayResults(analysis) {
+  // Update text content
+  textRecognition.textContent = analysis.text_recognition || 'No text detected';
+  visualElements.textContent = analysis.visual_elements || 'No visual elements detected';
+  contentAnalysis.textContent = analysis.content_analysis || 'No analysis available';
+  
+  // Update suggestions list
+  suggestionsList.innerHTML = '';
+  if (analysis.suggestions && Array.isArray(analysis.suggestions)) {
+    analysis.suggestions.forEach(suggestion => {
+      const li = document.createElement('li');
+      li.textContent = suggestion;
+      suggestionsList.appendChild(li);
+    });
+  } else {
+    const li = document.createElement('li');
+    li.textContent = 'No suggestions available';
+    suggestionsList.appendChild(li);
+  }
+  
+  // Update confidence bar
+  const confidence = Math.round((analysis.confidence || 0) * 100);
+  confidenceFill.style.width = `${confidence}%`;
+  confidenceText.textContent = `${confidence}%`;
+  
+  showResults();
+}
 
 /* Keyboard shortcuts */
 window.addEventListener('keydown', (e) => {

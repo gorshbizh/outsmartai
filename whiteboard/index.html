@@ -46,6 +46,8 @@
       <div class="tool-group">
         <button id="savePng">Save PNG</button>
         <button id="saveSvg">Save SVG</button>
+        <button id="saveToServer">Save to Server</button>
+        <button id="analyze-btn">Analyze with AI</button>
       </div>
     </nav>
   </header>
@@ -61,6 +63,48 @@
     <span class="spacer"></span>
     <a href="#" id="ossLink" target="_blank" rel="noopener noreferrer">Open Source (MIT)</a>
   </footer>
+
+  <!-- Analysis Results Panel -->
+  <div id="results-panel" class="results-panel hidden">
+    <div class="results-header">
+      <h3>AI Analysis Results</h3>
+      <button id="close-results" class="close-btn">&times;</button>
+    </div>
+    <div class="results-content">
+      <div id="results-loading" class="loading hidden">
+        <div class="spinner"></div>
+        <p>Analyzing your whiteboard...</p>
+      </div>
+      <div id="results-data" class="results-data hidden">
+        <div class="result-section">
+          <h4>Text Recognition</h4>
+          <p id="text-recognition">-</p>
+        </div>
+        <div class="result-section">
+          <h4>Visual Elements</h4>
+          <p id="visual-elements">-</p>
+        </div>
+        <div class="result-section">
+          <h4>Content Analysis</h4>
+          <p id="content-analysis">-</p>
+        </div>
+        <div class="result-section">
+          <h4>Suggestions</h4>
+          <ul id="suggestions-list"></ul>
+        </div>
+        <div class="result-section">
+          <h4>Confidence</h4>
+          <div id="confidence-bar">
+            <div id="confidence-fill"></div>
+            <span id="confidence-text">0%</span>
+          </div>
+        </div>
+      </div>
+      <div id="results-error" class="results-error hidden">
+        <p>Failed to analyze the image. Please try again.</p>
+      </div>
+    </div>
+  </div>
 
   <script src="app.js"></script>
 </body>
