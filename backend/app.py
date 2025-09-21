@@ -49,69 +49,99 @@ class LLMService:
     
     async def _analyze_with_openai(self, image_data: bytes) -> Dict[str, Any]:
         """Analyze image using OpenAI GPT-4 Vision"""
-        import openai
-        
-        client = openai.OpenAI(api_key=self.api_key)
-        base64_image = base64.b64encode(image_data).decode('utf-8')
-        
-        response = client.chat.completions.create(
-            model="gpt-4-vision-preview",
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": "Please analyze this whiteboard drawing and provide: 1) Text recognition of any written content, 2) Description of visual elements (diagrams, shapes, arrows), 3) Content analysis and interpretation, 4) Suggestions for improvement or organization. Format your response as JSON with keys: text_recognition, visual_elements, content_analysis, suggestions (array), confidence (0-1)."
-                        },
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/png;base64,{base64_image}"
+        try:
+            from openai import OpenAI
+            
+            # Initialize client with explicit parameters
+            client = OpenAI(
+                api_key=self.api_key,
+                timeout=30.0
+            )
+            
+            # Detect image format
+            image_format = self._detect_image_format(image_data)
+            base64_image = base64.b64encode(image_data).decode('utf-8')
+            
+            response = client.chat.completions.create(
+                model="gpt-4o",  # Using gpt-4o as it's the latest available vision model
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a helpful math teacher that can read text from images created from hand written notes and analyze diagrams to understand the content of the notes."
+                    },
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": "Analyze this whiteboard image carefully. Please provide detailed text recognition of ALL written content you can see, including handwritten text, printed text, numbers, symbols, and equations. Also describe visual elements like diagrams, shapes, arrows, and drawings. Format as JSON with: text_recognition (string with all text found), visual_elements (string), content_analysis (string), suggestions (array), confidence (0-1)."
+                            },
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/{image_format};base64,{base64_image}",
+                                    "detail": "high"
+                                }
                             }
-                        }
-                    ]
-                }
-            ],
-            max_tokens=1000
-        )
-        
-        content = response.choices[0].message.content
-        return self._parse_response(content)
+                        ]
+                    }
+                ],
+                max_tokens=1500,
+                temperature=0.1
+            )
+            
+            content = response.choices[0].message.content
+            return self._parse_response(content)
+            
+        except ImportError:
+            raise Exception("OpenAI library not installed. Run: pip install openai>=1.12.0")
+        except Exception as e:
+            print(f"OpenAI API error details: {str(e)}")
+            # Log more details about the error for debugging
+            if hasattr(e, 'response'):
+                print(f"API response status: {getattr(e.response, 'status_code', 'N/A')}")
+                print(f"API response body: {getattr(e.response, 'text', 'N/A')}")
+            raise Exception(f"OpenAI API error: {str(e)}")
     
     async def _analyze_with_anthropic(self, image_data: bytes) -> Dict[str, Any]:
         """Analyze image using Anthropic Claude"""
-        import anthropic
-        
-        client = anthropic.Anthropic(api_key=self.api_key)
-        base64_image = base64.b64encode(image_data).decode('utf-8')
-        
-        response = client.messages.create(
-            model="claude-3-sonnet-20240229",
-            max_tokens=1000,
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image",
-                            "source": {
-                                "type": "base64",
-                                "media_type": "image/png",
-                                "data": base64_image
+        try:
+            import anthropic
+            
+            client = anthropic.Anthropic(api_key=self.api_key)
+            base64_image = base64.b64encode(image_data).decode('utf-8')
+            
+            response = client.messages.create(
+                model="claude-3-5-sonnet-20241022",  # Updated to latest model
+                max_tokens=1000,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": "image/png",
+                                    "data": base64_image
+                                }
+                            },
+                            {
+                                "type": "text",
+                                "text": "Please analyze this whiteboard drawing and provide: 1) Text recognition of any written content, 2) Description of visual elements (diagrams, shapes, arrows), 3) Content analysis and interpretation, 4) Suggestions for improvement or organization. Format your response as JSON with keys: text_recognition, visual_elements, content_analysis, suggestions (array), confidence (0-1)."
                             }
-                        },
-                        {
-                            "type": "text",
-                            "text": "Please analyze this whiteboard drawing and provide: 1) Text recognition of any written content, 2) Description of visual elements (diagrams, shapes, arrows), 3) Content analysis and interpretation, 4) Suggestions for improvement or organization. Format your response as JSON with keys: text_recognition, visual_elements, content_analysis, suggestions (array), confidence (0-1)."
-                        }
-                    ]
-                }
-            ]
-        )
-        
-        content = response.content[0].text
-        return self._parse_response(content)
+                        ]
+                    }
+                ]
+            )
+            
+            content = response.content[0].text
+            return self._parse_response(content)
+            
+        except ImportError:
+            raise Exception("Anthropic library not installed. Run: pip install anthropic>=0.18.0")
+        except Exception as e:
+            raise Exception(f"Anthropic API error: {str(e)}")
     
     async def _analyze_with_google(self, image_data: bytes) -> Dict[str, Any]:
         """Analyze image using Google Gemini"""
@@ -133,6 +163,21 @@ class LLMService:
         
         response = model.generate_content([prompt, image])
         return self._parse_response(response.text)
+    
+    def _detect_image_format(self, image_data: bytes) -> str:
+        """Detect image format from image data"""
+        # Check magic bytes to determine format
+        if image_data.startswith(b'\x89PNG\r\n\x1a\n'):
+            return 'png'
+        elif image_data.startswith(b'\xff\xd8\xff'):
+            return 'jpeg'
+        elif image_data.startswith(b'RIFF') and b'WEBP' in image_data[:12]:
+            return 'webp'
+        elif image_data.startswith(b'GIF87a') or image_data.startswith(b'GIF89a'):
+            return 'gif'
+        else:
+            # Default to png if format cannot be determined
+            return 'png'
     
     def _parse_response(self, content: str) -> Dict[str, Any]:
         """Parse LLM response into structured format"""
@@ -184,7 +229,7 @@ class LLMService:
         """Generate mock analysis response"""
         responses = [
             {
-                "text_recognition": "Mathematical equations and formulas related to calculus",
+                "text_recognition": "MOCKED LLM RETURN: Mathematical equations and formulas related to calculus",
                 "visual_elements": "Hand-drawn graphs, coordinate axes, and geometric shapes",
                 "content_analysis": "This appears to be study notes for a calculus course, showing derivative calculations and graphical representations",
                 "suggestions": [
@@ -195,7 +240,7 @@ class LLMService:
                 "confidence": 0.85
             },
             {
-                "text_recognition": "Flowchart with decision points and process steps",
+                "text_recognition": "MOCKED LLM RETURN: Flowchart with decision points and process steps",
                 "visual_elements": "Rectangular boxes connected by arrows, diamond-shaped decision nodes",
                 "content_analysis": "A workflow diagram showing a business process or algorithm logic",
                 "suggestions": [
@@ -206,7 +251,7 @@ class LLMService:
                 "confidence": 0.90
             },
             {
-                "text_recognition": "Project timeline with dates and milestones",
+                "text_recognition": "MOCKED LLM RETURN: Project timeline with dates and milestones",
                 "visual_elements": "Horizontal timeline with markers and connecting lines",
                 "content_analysis": "Project planning document showing key deliverables and deadlines",
                 "suggestions": [

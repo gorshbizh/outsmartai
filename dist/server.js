@@ -93,7 +93,7 @@ async function processWithBackend(imageBuffer) {
 function getMockResponse() {
     const responses = [
         {
-            text_recognition: "Mathematical equations and formulas related to calculus",
+            text_recognition: "MOCKED PYTHON BACKEND RETURN: Mathematical equations and formulas related to calculus",
             visual_elements: "Hand-drawn graphs, coordinate axes, and geometric shapes",
             content_analysis: "This appears to be study notes for a calculus course, showing derivative calculations and graphical representations",
             suggestions: [
@@ -104,7 +104,7 @@ function getMockResponse() {
             confidence: 0.85
         },
         {
-            text_recognition: "Flowchart with decision points and process steps",
+            text_recognition: "MOCKED PYTHON BACKEND RETURN: Flowchart with decision points and process steps",
             visual_elements: "Rectangular boxes connected by arrows, diamond-shaped decision nodes",
             content_analysis: "A workflow diagram showing a business process or algorithm logic",
             suggestions: [
@@ -115,7 +115,7 @@ function getMockResponse() {
             confidence: 0.90
         },
         {
-            text_recognition: "Project timeline with dates and milestones",
+            text_recognition: "MOCKED PYTHON BACKEND RETURN: Project timeline with dates and milestones",
             visual_elements: "Horizontal timeline with markers and connecting lines",
             content_analysis: "Project planning document showing key deliverables and deadlines",
             suggestions: [
