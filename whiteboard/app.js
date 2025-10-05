@@ -306,10 +306,25 @@ clearBtn.addEventListener('click', () => {
 });
 
 savePngBtn.addEventListener('click', () => {
-  // Export at current CSS size with DPR baked in
+  // Create a temporary canvas with background color for PNG
+  const tempCanvas = document.createElement('canvas');
+  const tempCtx = tempCanvas.getContext('2d');
+  
+  // Set canvas size to match original
+  tempCanvas.width = canvas.width;
+  tempCanvas.height = canvas.height;
+  
+  // Fill with background color
+  tempCtx.fillStyle = bgColor || '#ffffff';
+  tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+  
+  // Draw the original canvas on top
+  tempCtx.drawImage(canvas, 0, 0);
+  
+  // Export as PNG
   const link = document.createElement('a');
   link.download = `handwriting-${Date.now()}.png`;
-  link.href = canvas.toDataURL('image/png');
+  link.href = tempCanvas.toDataURL('image/png');
   link.click();
 });
 
@@ -339,9 +354,24 @@ analyzeBtn.addEventListener('click', async () => {
     showResultsPanel();
     showLoading();
     
-    // Convert canvas to blob
+    // Create a temporary canvas with background color (same as Save PNG)
+    const tempCanvas = document.createElement('canvas');
+    const tempCtx = tempCanvas.getContext('2d');
+    
+    // Set canvas size to match original
+    tempCanvas.width = canvas.width;
+    tempCanvas.height = canvas.height;
+    
+    // Fill with background color
+    tempCtx.fillStyle = bgColor || '#ffffff';
+    tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+    
+    // Draw the original canvas on top
+    tempCtx.drawImage(canvas, 0, 0);
+    
+    // Convert to blob
     const blob = await new Promise(resolve => {
-      canvas.toBlob(resolve, 'image/png', 0.9);
+      tempCanvas.toBlob(resolve, 'image/png', 0.9);
     });
     
     // Create FormData and send to server
@@ -505,7 +535,7 @@ function updateButtonsState() {
 }
 
 /* SVG Export */
-function strokesToSVG(strokes, width, height) {
+function strokesToSVG(strokes, width, height, backgroundColor = '#ffffff') {
   const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
   const pathForStroke = (stroke) => {
@@ -547,7 +577,7 @@ function strokesToSVG(strokes, width, height) {
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
   <defs></defs>
-  ${bg ? `<rect width="100%" height="100%" fill="${esc(bg)}"/>` : ''}
+  ${backgroundColor ? `<rect width="100%" height="100%" fill="${esc(backgroundColor)}"/>` : ''}
   ${paths}
 </svg>`;
 }

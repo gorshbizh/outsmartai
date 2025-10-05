@@ -4,6 +4,7 @@ import os
 import io
 import base64
 import random
+import shutil
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 from flask import Flask, request, jsonify
@@ -50,17 +51,21 @@ class LLMService:
     async def _analyze_with_openai(self, image_data: bytes) -> Dict[str, Any]:
         """Analyze image using OpenAI GPT-4 Vision"""
         try:
+            # Detect image format
+            image_format = self._detect_image_format(image_data)
+            base64_image = base64.b64encode(image_data).decode('utf-8')
+            # debugging purposes
+            # print(f"Image format: {image_format}")
+            # print(f"Base64 image: {base64_image}")
+            # save base64_image to a file
+            # with open('se_image.txt', 'w') as f:
+            #     f.write(base64_image)
             from openai import OpenAI
-            
             # Initialize client with explicit parameters
             client = OpenAI(
                 api_key=self.api_key,
                 timeout=30.0
             )
-            
-            # Detect image format
-            image_format = self._detect_image_format(image_data)
-            base64_image = base64.b64encode(image_data).decode('utf-8')
             
             response = client.chat.completions.create(
                 model="gpt-4o",  # Using gpt-4o as it's the latest available vision model
@@ -169,8 +174,6 @@ class LLMService:
         # Check magic bytes to determine format
         if image_data.startswith(b'\x89PNG\r\n\x1a\n'):
             return 'png'
-        elif image_data.startswith(b'\xff\xd8\xff'):
-            return 'jpeg'
         elif image_data.startswith(b'RIFF') and b'WEBP' in image_data[:12]:
             return 'webp'
         elif image_data.startswith(b'GIF87a') or image_data.startswith(b'GIF89a'):
@@ -268,6 +271,28 @@ class LLMService:
 # Initialize LLM service
 llm_service = LLMService()
 
+# Backup functionality
+BACKUP_DIR = os.getenv('BACKUP_DIR', 'backups/images')
+
+def ensure_backup_directory():
+    """Ensure backup directory exists"""
+    if not os.path.exists(BACKUP_DIR):
+        os.makedirs(BACKUP_DIR, exist_ok=True)
+
+def save_image_backup(image_data: bytes, filename_prefix: str = "backup") -> str:
+    """Save image backup and return the backup file path"""
+    ensure_backup_directory()
+    
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')[:-3]  # milliseconds
+    backup_filename = f"{filename_prefix}_{timestamp}.png"
+    backup_path = os.path.join(BACKUP_DIR, backup_filename)
+    
+    with open(backup_path, 'wb') as f:
+        f.write(image_data)
+    
+    print(f"Image backup saved: {backup_path}")
+    return backup_path
+
 @app.route('/health', methods=['GET'])
 def health_check():
     """Health check endpoint"""
@@ -306,7 +331,11 @@ def analyze_image():
                 'error': f'Invalid image format: {str(e)}'
             }), 400
         
+        # Save backup of the image before processing
+        backup_path = save_image_backup(image_data, "analyzed_image")
+        
         print(f"Processing image analysis request at {datetime.now()}")
+        print(f"Image backup saved to: {backup_path}")
         
         # Process with LLM (note: using sync call since Flask doesn't support async by default)
         # For production, consider using Flask with async support or Celery for async processing
@@ -323,6 +352,111 @@ def analyze_image():
         
     except Exception as e:
         print(f"Error processing image: {e}")
+        return jsonify({
+            'error': f'Internal server error: {str(e)}'
+        }), 500
+
+@app.route('/api/process-image', methods=['POST'])
+def process_image():
+    """Process image file for AI analysis"""
+    try:
+        # Check if image file is in the request
+        if 'image' not in request.files:
+            return jsonify({
+                'success': False,
+                'error': 'No image file provided'
+            }), 400
+        
+        image_file = request.files['image']
+        
+        if image_file.filename == '':
+            return jsonify({
+                'success': False,
+                'error': 'No image file selected'
+            }), 400
+        
+        # Read image data
+        image_data = image_file.read()
+        
+        # Validate image
+        try:
+            image = Image.open(io.BytesIO(image_data))
+            image.verify()  # Verify it's a valid image
+        except Exception as e:
+            return jsonify({
+                'success': False,
+                'error': f'Invalid image format: {str(e)}'
+            }), 400
+        
+        # Save backup of the image before processing
+        backup_path = save_image_backup(image_data, "analyzed_image")
+        
+        print(f"Processing image analysis request at {datetime.now()}")
+        print(f"Image backup saved to: {backup_path}")
+        
+        # Process with LLM
+        import asyncio
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        try:
+            result = loop.run_until_complete(llm_service.analyze_image(image_data))
+        finally:
+            loop.close()
+        
+        return jsonify({
+            'success': True,
+            'analysis': result
+        })
+        
+    except Exception as e:
+        print(f"Error processing image: {e}")
+        return jsonify({
+            'success': False,
+            'error': f'Internal server error: {str(e)}'
+        }), 500
+
+@app.route('/api/backup-image', methods=['POST'])
+def backup_image():
+    """Save image backup"""
+    try:
+        # Check if image file is in the request
+        if 'image' not in request.files:
+            return jsonify({
+                'error': 'No image file provided'
+            }), 400
+        
+        image_file = request.files['image']
+        backup_type = request.form.get('backup_type', 'general')
+        
+        if image_file.filename == '':
+            return jsonify({
+                'error': 'No image file selected'
+            }), 400
+        
+        # Read image data
+        image_data = image_file.read()
+        
+        # Validate image
+        try:
+            image = Image.open(io.BytesIO(image_data))
+            image.verify()  # Verify it's a valid image
+        except Exception as e:
+            return jsonify({
+                'error': f'Invalid image format: {str(e)}'
+            }), 400
+        
+        # Save backup
+        backup_path = save_image_backup(image_data, backup_type)
+        
+        return jsonify({
+            'success': True,
+            'backup_path': backup_path,
+            'message': 'Image backup saved successfully'
+        })
+        
+    except Exception as e:
+        print(f"Error saving image backup: {e}")
         return jsonify({
             'error': f'Internal server error: {str(e)}'
         }), 500

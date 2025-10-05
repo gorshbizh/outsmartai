@@ -24,7 +24,7 @@ source .venv/bin/activate
 pip install --upgrade pip
 
 # Install requirements
-pip install -r requirements.txt
+pip install -i https://pypi.org/simple/ -r requirements.txt
 ```
 
 ### 3. Configure Environment

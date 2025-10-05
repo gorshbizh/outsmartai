@@ -95,3 +95,6 @@ temp/
 dist/
 build/
 out/
+
+# Image backups
+backups/
