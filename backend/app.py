@@ -317,6 +317,12 @@ def analyze_image():
         # Decode base64 image
         try:
             image_data = base64.b64decode(data['image'])
+            # Debug: save the uploaded image for inspection
+            os.makedirs("uploads", exist_ok=True)
+            debug_path = os.path.join("uploads", "debug_latest.png")
+            with open(debug_path, "wb") as f:
+                f.write(image_data)
+            print(f"Saved debug image to {debug_path}")
         except Exception as e:
             return jsonify({
                 'error': f'Invalid base64 image data: {str(e)}'
