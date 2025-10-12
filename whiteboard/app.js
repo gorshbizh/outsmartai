@@ -298,6 +298,105 @@ redoBtn.addEventListener('click', () => {
   fullRedraw();
 });
 
+/* ========== Typing Tool ========== */
+const toolText = document.createElement('label');
+toolText.innerHTML = '<input type="radio" name="tool" value="text" id="tool-text">Text';
+document.querySelector('.toolbar .tool-group').appendChild(toolText);
+
+let isTyping = false;
+let textInput = null;
+let textEntries = []; // store {x, y, text, color, size}
+
+/* draw all text items */
+function drawTexts() {
+  ctx.save();
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = colorInput.value;
+  textEntries.forEach(entry => {
+    ctx.fillStyle = entry.color;
+    ctx.font = `${entry.size * 5}px sans-serif`;
+    ctx.textBaseline = 'top';
+    ctx.fillText(entry.text, entry.x, entry.y);
+  });
+  ctx.restore();
+  fullRedraw(); // redraw strokes + texts
+  ctx.save();
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  textEntries.forEach(entry => {
+    ctx.fillStyle = entry.color;
+    ctx.font = `${entry.size * 5}px sans-serif`;
+    ctx.textBaseline = 'top';
+    ctx.fillText(entry.text, entry.x, entry.y);
+  });
+  ctx.restore();
+}
+
+/* place text input on click */
+canvas.addEventListener('click', (evt) => {
+  if (!document.getElementById('tool-text').checked) return;
+  const pos = getPos(evt);
+  if (isTyping && textInput) {
+    finalizeText();
+  }
+  createTextInput(pos.x, pos.y);
+});
+
+function createTextInput(x, y) {
+  textInput = document.createElement('textarea');
+  textInput.className = 'text-entry';
+  textInput.style.position = 'absolute';
+  textInput.style.left = `${x}px`;
+  textInput.style.top = `${y}px`;
+  textInput.style.fontSize = `${Number(sizeInput.value) * 5}px`;
+  textInput.style.color = colorInput.value;
+  textInput.style.background = 'transparent';
+  textInput.style.border = '1px dashed gray';
+  textInput.style.outline = 'none';
+  textInput.rows = 2;
+  textInput.cols = 15;
+  textInput.spellcheck = false;
+  container.appendChild(textInput);
+  textInput.focus();
+  isTyping = true;
+
+  textInput.addEventListener('blur', finalizeText);
+  textInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      finalizeText();
+    }
+  });
+}
+
+function finalizeText() {
+  if (!textInput) return;
+  const text = textInput.value.trim();
+  if (text) {
+    const rect = textInput.getBoundingClientRect();
+    const containerRect = container.getBoundingClientRect();
+    const x = rect.left - containerRect.left;
+    const y = rect.top - containerRect.top;
+    const color = textInput.style.color;
+    const size = Number(sizeInput.value);
+    textEntries.push({ x, y, text, color, size });
+    drawTexts();
+    // Redraw all stored texts over strokes
+    fullRedraw();
+    ctx.save();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    textEntries.forEach(entry => {
+      ctx.fillStyle = entry.color;
+      ctx.font = `${entry.size * 5}px sans-serif`;
+      ctx.textBaseline = 'top';
+      ctx.fillText(entry.text, entry.x, entry.y);
+    });
+    ctx.restore();
+  }
+  container.removeChild(textInput);
+  textInput = null;
+  isTyping = false;
+}
+
 clearBtn.addEventListener('click', () => {
   if (history.length === 0) return;
   history.length = 0;
