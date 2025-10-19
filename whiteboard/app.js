@@ -361,7 +361,8 @@ function createTextInput(x, y) {
 
   textInput.addEventListener('blur', finalizeText);
   textInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    // Allow multiline input with Enter and Shift+Enter — only finalize with Escape
+    if (e.key === 'Escape') {
       e.preventDefault();
       finalizeText();
     }
