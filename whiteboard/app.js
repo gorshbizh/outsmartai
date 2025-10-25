@@ -359,7 +359,9 @@ function createTextInput(x, y) {
   textInput.focus();
   isTyping = true;
 
+  // Finalize text when the user clicks outside the textbox (blur event)
   textInput.addEventListener('blur', finalizeText);
+
   textInput.addEventListener('keydown', (e) => {
     // Allow multiline input with Enter and Shift+Enter — only finalize with Escape
     if (e.key === 'Escape') {
