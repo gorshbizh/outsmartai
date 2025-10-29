@@ -312,6 +312,8 @@ const toolTextInput = document.getElementById('tool-text');
 let activeTextBox = null;
 let textBoxCounter = 0;
 let textBoxZIndex = 50;
+const textMeasureCanvas = document.createElement('canvas');
+const textMeasureCtx = textMeasureCanvas.getContext('2d');
 
 function isTextToolActive() {
   return Boolean(toolTextInput && toolTextInput.checked);
@@ -343,12 +345,31 @@ function autoSizeTextBox(box) {
 
   const paddingX = (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0);
   const paddingY = (parseFloat(style.paddingTop) || 0) + (parseFloat(style.paddingBottom) || 0);
+  const borderX = (parseFloat(style.borderLeftWidth) || 0) + (parseFloat(style.borderRightWidth) || 0);
   const baseFontSize = parseFloat(style.fontSize) || 16;
   const minWidth = box.minWidth || 80;
   const minHeight = box.minHeight || baseFontSize * 1.25 + paddingY;
 
+  let contentWidth = 0;
+  if (textMeasureCtx) {
+    const font = style.font || `${style.fontStyle} ${style.fontVariant} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`.trim();
+    textMeasureCtx.font = font;
+    const letterSpacing = parseFloat(style.letterSpacing) || 0;
+    const lines = el.value.split(/\r?\n/);
+    for (const line of lines) {
+      const text = line === '' ? ' ' : line;
+      const metrics = textMeasureCtx.measureText(text);
+      const lineWidth = metrics.width + Math.max(0, text.length - 1) * letterSpacing;
+      if (lineWidth > contentWidth) {
+        contentWidth = lineWidth;
+      }
+    }
+  } else {
+    contentWidth = el.scrollWidth;
+  }
+
+  const width = Math.max(minWidth, Math.ceil(contentWidth + paddingX + borderX + 2));
   const height = Math.max(minHeight, el.scrollHeight);
-  const width = Math.max(minWidth, el.scrollWidth + paddingX);
 
   el.style.height = `${height}px`;
   el.style.width = `${width}px`;
@@ -410,6 +431,10 @@ function createTextBox(x, y) {
   textarea.dataset.boxId = box.id;
 
   textarea.addEventListener('input', () => {
+    if (textarea.value.length === 0) {
+      removeTextBox(box);
+      return;
+    }
     autoSizeTextBox(box);
   });
 
@@ -487,16 +512,26 @@ container.addEventListener('pointerdown', (evt) => {
   focusTextBox(newBox, true);
 });
 
-function clearTextBoxes() {
-  while (textBoxes.length) {
-    const box = textBoxes.pop();
-    if (box.element && box.element.parentNode === container) {
-      container.removeChild(box.element);
-    }
+function removeTextBox(box) {
+  if (!box) return;
+  const idx = textBoxes.indexOf(box);
+  if (idx !== -1) {
+    textBoxes.splice(idx, 1);
   }
-  activeTextBox = null;
+  if (box.element && box.element.parentNode) {
+    box.element.parentNode.removeChild(box.element);
+  }
+  if (activeTextBox === box) {
+    activeTextBox = null;
+  }
   updateTextBoxInteractivity();
   updateButtonsState();
+}
+
+function clearTextBoxes() {
+  while (textBoxes.length) {
+    removeTextBox(textBoxes[textBoxes.length - 1]);
+  }
 }
 
 function resolveLineHeight(value, fontSizePx) {
