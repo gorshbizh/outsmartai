@@ -56,7 +56,10 @@ let currentStroke = null;
 let needsFullRedraw = true;
 let bgColor = bgColorInput ? bgColorInput.value : '#ffffff';
 canvas.style.backgroundColor = bgColor;
-canvas.style.backgroundColor = bgColor;
+
+// Fixed canvas dimensions (set once at page load)
+let fixedCanvasWidth = 0;
+let fixedCanvasHeight = 0;
 
 /* History stacks */
 const history = [];      // Array<Stroke>
@@ -74,16 +77,20 @@ const textBoxes = [];
 
 /* Utilities */
 function setCanvasSize() {
-  const rect = container.getBoundingClientRect();
-  const cssW = Math.max(1, Math.floor(rect.width));
-  const cssH = Math.max(1, Math.floor(rect.height));
+  // Set fixed dimensions only once at page load
+  if (fixedCanvasWidth === 0 || fixedCanvasHeight === 0) {
+    const rect = container.getBoundingClientRect();
+    fixedCanvasWidth = Math.max(800, Math.floor(rect.width)); // Minimum 800px width
+    fixedCanvasHeight = Math.max(600, Math.floor(rect.height)); // Minimum 600px height
+  }
+  
   dpr = Math.max(1, window.devicePixelRatio || 1);
 
-  // Preserve content by redrawing from history after resize
-  canvas.width = Math.floor(cssW * dpr);
-  canvas.height = Math.floor(cssH * dpr);
-  canvas.style.width = cssW + 'px';
-  canvas.style.height = cssH + 'px';
+  // Set canvas to fixed dimensions
+  canvas.width = Math.floor(fixedCanvasWidth * dpr);
+  canvas.height = Math.floor(fixedCanvasHeight * dpr);
+  canvas.style.width = fixedCanvasWidth + 'px';
+  canvas.style.height = fixedCanvasHeight + 'px';
 
   ctx.setTransform(1, 0, 0, 1, 0, 0); // reset
   ctx.scale(dpr, dpr);
@@ -315,6 +322,37 @@ let textBoxZIndex = 50;
 const textMeasureCanvas = document.createElement('canvas');
 const textMeasureCtx = textMeasureCanvas.getContext('2d');
 
+// Create warning sound using Web Audio API
+let audioContext = null;
+function playWarningSound() {
+  try {
+    if (!audioContext) {
+      audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    
+    // Create a brief warning beep
+    const oscillator = audioContext.createOscillator();
+    const gainNode = audioContext.createGain();
+    
+    oscillator.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+    
+    // High-pitched beep sound
+    oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
+    oscillator.frequency.setValueAtTime(600, audioContext.currentTime + 0.1);
+    
+    // Quick fade out
+    gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.15);
+    
+    oscillator.start(audioContext.currentTime);
+    oscillator.stop(audioContext.currentTime + 0.15);
+  } catch (error) {
+    // Fallback: system beep (if available)
+    console.beep?.() || console.log('Text box boundary reached');
+  }
+}
+
 function isTextToolActive() {
   return Boolean(toolTextInput && toolTextInput.checked);
 }
@@ -350,6 +388,12 @@ function autoSizeTextBox(box) {
   const minWidth = box.minWidth || 80;
   const minHeight = box.minHeight || baseFontSize * 1.25 + paddingY;
 
+  // Get fixed canvas dimensions and text box position
+  const boxLeft = parseFloat(el.style.left) || 0;
+  const boxTop = parseFloat(el.style.top) || 0;
+  const maxWidth = fixedCanvasWidth - boxLeft - 10; // 10px margin from edge
+  const maxHeight = fixedCanvasHeight - boxTop - 10; // 10px margin from edge
+
   let contentWidth = 0;
   if (textMeasureCtx) {
     const font = style.font || `${style.fontStyle} ${style.fontVariant} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`.trim();
@@ -368,11 +412,22 @@ function autoSizeTextBox(box) {
     contentWidth = el.scrollWidth;
   }
 
-  const width = Math.max(minWidth, Math.ceil(contentWidth + paddingX + borderX + 2));
-  const height = Math.max(minHeight, el.scrollHeight);
+  // Calculate desired dimensions
+  const desiredWidth = Math.max(minWidth, Math.ceil(contentWidth + paddingX + borderX + 2));
+  const desiredHeight = Math.max(minHeight, el.scrollHeight);
+
+  // Constrain to canvas bounds
+  const width = Math.min(desiredWidth, maxWidth);
+  const height = Math.min(desiredHeight, maxHeight);
 
   el.style.height = `${height}px`;
   el.style.width = `${width}px`;
+
+  // Store original and constrained sizes for input validation
+  box._maxWidth = maxWidth;
+  box._maxHeight = maxHeight;
+  box._isConstrainedWidth = width < desiredWidth;
+  box._isConstrainedHeight = height < desiredHeight;
 
   updateTextBoxBounds(box);
 }
@@ -412,30 +467,157 @@ function createTextBox(x, y) {
   textarea.spellcheck = false;
   textarea.value = '';
   textarea.style.position = 'absolute';
-  textarea.style.left = `${x}px`;
-  textarea.style.top = `${y}px`;
   textarea.style.color = colorInput.value;
 
   const fontPx = Number(sizeInput.value) * 5;
   textarea.style.fontSize = `${fontPx}px`;
+  
+  // Calculate minimum dimensions for the text box
+  const minWidth = 80;
+  const minHeight = Math.max(fontPx * 1.5, 32); // Ensure at least 32px height for typing
+  const margin = 10; // Safety margin from canvas edges
+  
+  // Check if canvas is large enough for minimum text box size
+  if (fixedCanvasWidth < minWidth + (margin * 2) || fixedCanvasHeight < minHeight + (margin * 2)) {
+    console.warn('Canvas too small for text box minimum dimensions');
+    // Use smaller margins if canvas is very small
+    const adaptiveMargin = Math.min(margin, Math.floor(Math.min(fixedCanvasWidth, fixedCanvasHeight) * 0.05));
+    const adaptiveMinWidth = Math.min(minWidth, fixedCanvasWidth - (adaptiveMargin * 2));
+    const adaptiveMinHeight = Math.min(minHeight, fixedCanvasHeight - (adaptiveMargin * 2));
+    
+    const adjustedX = Math.min(x, fixedCanvasWidth - adaptiveMinWidth - adaptiveMargin);
+    const adjustedY = Math.min(y, fixedCanvasHeight - adaptiveMinHeight - adaptiveMargin);
+    const finalX = Math.max(adaptiveMargin, adjustedX);
+    const finalY = Math.max(adaptiveMargin, adjustedY);
+    
+    textarea.style.left = `${finalX}px`;
+    textarea.style.top = `${finalY}px`;
+  } else {
+    // Normal case: canvas is large enough
+    const adjustedX = Math.min(x, fixedCanvasWidth - minWidth - margin);
+    const adjustedY = Math.min(y, fixedCanvasHeight - minHeight - margin);
+    
+    // Ensure position is not negative
+    const finalX = Math.max(margin, adjustedX);
+    const finalY = Math.max(margin, adjustedY);
+    
+    // Additional check: if click is very close to bottom, move text box up more aggressively
+    const distanceFromBottom = fixedCanvasHeight - y;
+    const requiredSpace = minHeight + margin;
+    
+    let adjustedFinalY = finalY;
+    if (distanceFromBottom < requiredSpace) {
+      // Move text box up to ensure full height is available
+      adjustedFinalY = Math.max(margin, fixedCanvasHeight - minHeight - margin);
+    }
+    
+    textarea.style.left = `${finalX}px`;
+    textarea.style.top = `${adjustedFinalY}px`;
+  }
 
   const box = {
     id: `textbox-${++textBoxCounter}`,
     element: textarea,
-    minWidth: 80,
-    minHeight: fontPx * 1.35,
+    minWidth: minWidth,
+    minHeight: minHeight,
     bounds: null,
     z: 0,
+    _previousValue: '',
+    _maxWidth: Infinity,
+    _maxHeight: Infinity,
+    _isConstrainedWidth: false,
+    _isConstrainedHeight: false,
   };
 
   textarea.dataset.boxId = box.id;
 
-  textarea.addEventListener('input', () => {
+  textarea.addEventListener('input', (e) => {
     if (textarea.value.length === 0) {
       removeTextBox(box);
       return;
     }
+    
+    // Store current value before auto-sizing
+    const currentValue = textarea.value;
     autoSizeTextBox(box);
+    
+    // Check if the text box hit size constraints and revert if necessary
+    if (box._isConstrainedWidth || box._isConstrainedHeight) {
+      // Get the content that would fit
+      const style = window.getComputedStyle(textarea);
+      const paddingY = (parseFloat(style.paddingTop) || 0) + (parseFloat(style.paddingBottom) || 0);
+      const lineHeight = parseFloat(style.lineHeight) || parseFloat(style.fontSize) * 1.2;
+      const maxLines = Math.floor((box._maxHeight - paddingY) / lineHeight);
+      
+      // If content doesn't fit, revert to previous value
+      if (textarea.scrollWidth > textarea.clientWidth || textarea.scrollHeight > textarea.clientHeight) {
+        e.preventDefault();
+        playWarningSound();
+        textarea.value = box._previousValue || '';
+        autoSizeTextBox(box);
+        return;
+      }
+      
+      // For height constraint, limit number of lines
+      if (box._isConstrainedHeight) {
+        const lines = currentValue.split('\n');
+        if (lines.length > maxLines) {
+          playWarningSound();
+          textarea.value = box._previousValue || '';
+          autoSizeTextBox(box);
+          return;
+        }
+      }
+    }
+    
+    // Store valid value for future reference
+    box._previousValue = textarea.value;
+  });
+
+  textarea.addEventListener('keydown', (e) => {
+    // Allow navigation and deletion keys
+    const allowedKeys = ['Backspace', 'Delete', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'Tab'];
+    if (allowedKeys.includes(e.key) || e.ctrlKey || e.metaKey) {
+      return;
+    }
+    
+    // Check if we're at size limits before allowing input
+    autoSizeTextBox(box);
+    if (box._isConstrainedWidth || box._isConstrainedHeight) {
+      const style = window.getComputedStyle(textarea);
+      const paddingY = (parseFloat(style.paddingTop) || 0) + (parseFloat(style.paddingBottom) || 0);
+      const lineHeight = parseFloat(style.lineHeight) || parseFloat(style.fontSize) * 1.2;
+      const maxLines = Math.floor((box._maxHeight - paddingY) / lineHeight);
+      
+      // Prevent typing if at width limit (except newlines)
+      if (box._isConstrainedWidth && e.key !== 'Enter') {
+        const testValue = textarea.value + e.key;
+        const tempTextarea = document.createElement('textarea');
+        tempTextarea.style.cssText = textarea.style.cssText;
+        tempTextarea.style.position = 'absolute';
+        tempTextarea.style.visibility = 'hidden';
+        tempTextarea.value = testValue;
+        document.body.appendChild(tempTextarea);
+        
+        if (tempTextarea.scrollWidth > box._maxWidth) {
+          e.preventDefault();
+          playWarningSound();
+          document.body.removeChild(tempTextarea);
+          return;
+        }
+        document.body.removeChild(tempTextarea);
+      }
+      
+      // Prevent new lines if at height limit
+      if (box._isConstrainedHeight && e.key === 'Enter') {
+        const currentLines = textarea.value.split('\n').length;
+        if (currentLines >= maxLines) {
+          e.preventDefault();
+          playWarningSound();
+          return;
+        }
+      }
+    }
   });
 
   textarea.addEventListener('focus', () => {
@@ -506,6 +688,35 @@ container.addEventListener('pointerdown', (evt) => {
   }
 
   if (evt.target !== canvas) return;
+
+  // Check if canvas has enough space for a text box
+  const fontPx = Number(sizeInput.value) * 5;
+  const minRequiredWidth = 80 + 20; // min width + margins
+  const minRequiredHeight = Math.max(fontPx * 1.5, 32) + 20; // min height + margins (ensure typing space)
+  
+  if (fixedCanvasWidth < minRequiredWidth || fixedCanvasHeight < minRequiredHeight) {
+    console.warn('Canvas too small to create text boxes');
+    return;
+  }
+  
+  // Check if click position is too close to bottom edge for proper text box creation
+  const minHeightNeeded = Math.max(fontPx * 1.5, 32);
+  const marginNeeded = 10;
+  const totalSpaceNeeded = minHeightNeeded + marginNeeded;
+  
+  if (pos.y > fixedCanvasHeight - totalSpaceNeeded) {
+    console.log('Click too close to bottom edge - text box creation blocked');
+    return;
+  }
+  
+  // Check if click position is too close to right edge
+  const minWidthNeeded = 80;
+  const totalWidthNeeded = minWidthNeeded + marginNeeded;
+  
+  if (pos.x > fixedCanvasWidth - totalWidthNeeded) {
+    console.log('Click too close to right edge - text box creation blocked');
+    return;
+  }
 
   evt.preventDefault();
   const newBox = createTextBox(pos.x, pos.y);
@@ -812,10 +1023,7 @@ canvas.addEventListener('pointerup', endStroke);
 canvas.addEventListener('pointercancel', endStroke);
 canvas.addEventListener('pointerleave', endStroke);
 
-/* Resize handling */
-window.addEventListener('resize', () => {
-  setCanvasSize();
-});
+/* Resize handling removed - canvas now uses fixed dimensions */
 
 /* Initial setup */
 setCanvasSize();
