@@ -61,6 +61,7 @@ canvas.style.backgroundColor = bgColor;
 /* History stacks */
 const history = [];      // Array<Stroke>
 const redoStack = [];    // Array<Stroke>
+const textBoxes = [];
 
 /* Stroke structure:
 {
@@ -90,6 +91,7 @@ function setCanvasSize() {
   ctx.lineJoin = 'round';
 
   fullRedraw();
+  textBoxes.forEach(updateTextBoxBounds);
 }
 
 function getPos(evt) {
@@ -199,6 +201,9 @@ function fullRedraw() {
 }
 
 function startStroke(evt) {
+  if (isTextToolActive && isTextToolActive()) {
+    return;
+  }
   evt.preventDefault();
   canvas.setPointerCapture(evt.pointerId);
   isDrawing = true;
@@ -299,109 +304,297 @@ redoBtn.addEventListener('click', () => {
 });
 
 /* ========== Typing Tool ========== */
-const toolText = document.createElement('label');
-toolText.innerHTML = '<input type="radio" name="tool" value="text" id="tool-text">Text';
-document.querySelector('.toolbar .tool-group').appendChild(toolText);
+const textToolLabel = document.createElement('label');
+textToolLabel.innerHTML = '<input type="radio" name="tool" value="text" id="tool-text">Text';
+document.querySelector('.toolbar .tool-group').appendChild(textToolLabel);
 
-let isTyping = false;
-let textInput = null;
-let textEntries = []; // store {x, y, text, color, size}
+const toolTextInput = document.getElementById('tool-text');
+let activeTextBox = null;
+let textBoxCounter = 0;
+let textBoxZIndex = 50;
+const textMeasureCanvas = document.createElement('canvas');
+const textMeasureCtx = textMeasureCanvas.getContext('2d');
 
-/* draw all text items */
-function drawTexts() {
-  ctx.save();
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.fillStyle = colorInput.value;
-  textEntries.forEach(entry => {
-    ctx.fillStyle = entry.color;
-    ctx.font = `${entry.size * 5}px sans-serif`;
-    ctx.textBaseline = 'top';
-    ctx.fillText(entry.text, entry.x, entry.y);
-  });
-  ctx.restore();
-  fullRedraw(); // redraw strokes + texts
-  ctx.save();
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  textEntries.forEach(entry => {
-    ctx.fillStyle = entry.color;
-    ctx.font = `${entry.size * 5}px sans-serif`;
-    ctx.textBaseline = 'top';
-    ctx.fillText(entry.text, entry.x, entry.y);
-  });
-  ctx.restore();
+function isTextToolActive() {
+  return Boolean(toolTextInput && toolTextInput.checked);
 }
 
-/* place text input on click */
-canvas.addEventListener('click', (evt) => {
-  if (!document.getElementById('tool-text').checked) return;
-  const pos = getPos(evt);
-  if (isTyping && textInput) {
-    finalizeText();
+function bringTextBoxToFront(box) {
+  textBoxZIndex += 1;
+  box.z = textBoxZIndex;
+  box.element.style.zIndex = String(box.z);
+}
+
+function updateTextBoxBounds(box) {
+  const rect = box.element.getBoundingClientRect();
+  const containerRect = container.getBoundingClientRect();
+  box.bounds = {
+    left: rect.left - containerRect.left,
+    top: rect.top - containerRect.top,
+    right: rect.right - containerRect.left,
+    bottom: rect.bottom - containerRect.top,
+  };
+}
+
+function autoSizeTextBox(box) {
+  const el = box.element;
+  const style = window.getComputedStyle(el);
+
+  el.style.height = 'auto';
+  el.style.width = 'auto';
+
+  const paddingX = (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0);
+  const paddingY = (parseFloat(style.paddingTop) || 0) + (parseFloat(style.paddingBottom) || 0);
+  const borderX = (parseFloat(style.borderLeftWidth) || 0) + (parseFloat(style.borderRightWidth) || 0);
+  const baseFontSize = parseFloat(style.fontSize) || 16;
+  const minWidth = box.minWidth || 80;
+  const minHeight = box.minHeight || baseFontSize * 1.25 + paddingY;
+
+  let contentWidth = 0;
+  if (textMeasureCtx) {
+    const font = style.font || `${style.fontStyle} ${style.fontVariant} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`.trim();
+    textMeasureCtx.font = font;
+    const letterSpacing = parseFloat(style.letterSpacing) || 0;
+    const lines = el.value.split(/\r?\n/);
+    for (const line of lines) {
+      const text = line === '' ? ' ' : line;
+      const metrics = textMeasureCtx.measureText(text);
+      const lineWidth = metrics.width + Math.max(0, text.length - 1) * letterSpacing;
+      if (lineWidth > contentWidth) {
+        contentWidth = lineWidth;
+      }
+    }
+  } else {
+    contentWidth = el.scrollWidth;
   }
-  createTextInput(pos.x, pos.y);
+
+  const width = Math.max(minWidth, Math.ceil(contentWidth + paddingX + borderX + 2));
+  const height = Math.max(minHeight, el.scrollHeight);
+
+  el.style.height = `${height}px`;
+  el.style.width = `${width}px`;
+
+  updateTextBoxBounds(box);
+}
+
+function setActiveTextBox(box) {
+  if (activeTextBox && activeTextBox !== box) {
+    activeTextBox.element.classList.remove('text-entry--active');
+  }
+  activeTextBox = box;
+  if (box) {
+    box.element.classList.add('text-entry--active');
+    bringTextBoxToFront(box);
+  }
+}
+
+function focusTextBox(box, moveCaretToEnd = false) {
+  setActiveTextBox(box);
+  box.element.focus();
+  if (moveCaretToEnd) {
+    const len = box.element.value.length;
+    box.element.setSelectionRange(len, len);
+  }
+}
+
+function updateTextBoxInteractivity() {
+  const interactive = isTextToolActive();
+  textBoxes.forEach(box => {
+    box.element.classList.toggle('text-entry--interactive', interactive);
+    box.element.classList.toggle('text-entry--readonly', !interactive);
+  });
+  canvas.style.cursor = interactive ? 'text' : 'crosshair';
+}
+
+function createTextBox(x, y) {
+  const textarea = document.createElement('textarea');
+  textarea.className = 'text-entry';
+  textarea.spellcheck = false;
+  textarea.value = '';
+  textarea.style.position = 'absolute';
+  textarea.style.left = `${x}px`;
+  textarea.style.top = `${y}px`;
+  textarea.style.color = colorInput.value;
+
+  const fontPx = Number(sizeInput.value) * 5;
+  textarea.style.fontSize = `${fontPx}px`;
+
+  const box = {
+    id: `textbox-${++textBoxCounter}`,
+    element: textarea,
+    minWidth: 80,
+    minHeight: fontPx * 1.35,
+    bounds: null,
+    z: 0,
+  };
+
+  textarea.dataset.boxId = box.id;
+
+  textarea.addEventListener('input', () => {
+    if (textarea.value.length === 0) {
+      removeTextBox(box);
+      return;
+    }
+    autoSizeTextBox(box);
+  });
+
+  textarea.addEventListener('focus', () => {
+    setActiveTextBox(box);
+  });
+
+  textarea.addEventListener('blur', () => {
+    if (activeTextBox === box) {
+      activeTextBox = null;
+    }
+    textarea.classList.remove('text-entry--active');
+  });
+
+  textarea.addEventListener('pointerdown', () => {
+    bringTextBoxToFront(box);
+  });
+
+  container.appendChild(textarea);
+  textBoxes.push(box);
+  bringTextBoxToFront(box);
+  updateTextBoxInteractivity();
+  autoSizeTextBox(box);
+  updateButtonsState();
+  return box;
+}
+
+function findTextBoxAt(x, y) {
+  if (!textBoxes.length) return null;
+  let candidate = null;
+  let highestZ = -Infinity;
+  for (const box of textBoxes) {
+    updateTextBoxBounds(box);
+    if (
+      x >= box.bounds.left &&
+      x <= box.bounds.right &&
+      y >= box.bounds.top &&
+      y <= box.bounds.bottom
+    ) {
+      if (box.z > highestZ) {
+        highestZ = box.z;
+        candidate = box;
+      }
+    }
+  }
+  return candidate;
+}
+
+if (toolTextInput) {
+  toolTextInput.addEventListener('change', updateTextBoxInteractivity);
+}
+if (toolPen) {
+  toolPen.addEventListener('change', updateTextBoxInteractivity);
+}
+if (toolEraser) {
+  toolEraser.addEventListener('change', updateTextBoxInteractivity);
+}
+
+container.addEventListener('pointerdown', (evt) => {
+  if (!isTextToolActive()) return;
+  if (typeof evt.button === 'number' && evt.button !== 0) return;
+
+  const pos = getPos(evt);
+  const existing = findTextBoxAt(pos.x, pos.y);
+
+  if (existing) {
+    focusTextBox(existing);
+    return;
+  }
+
+  if (evt.target !== canvas) return;
+
+  evt.preventDefault();
+  const newBox = createTextBox(pos.x, pos.y);
+  focusTextBox(newBox, true);
 });
 
-function createTextInput(x, y) {
-  textInput = document.createElement('textarea');
-  textInput.className = 'text-entry';
-  textInput.style.position = 'absolute';
-  textInput.style.left = `${x}px`;
-  textInput.style.top = `${y}px`;
-  textInput.style.fontSize = `${Number(sizeInput.value) * 5}px`;
-  textInput.style.color = colorInput.value;
-  textInput.style.background = 'transparent';
-  textInput.style.border = '1px dashed gray';
-  textInput.style.outline = 'none';
-  textInput.rows = 2;
-  textInput.cols = 15;
-  textInput.spellcheck = false;
-  container.appendChild(textInput);
-  textInput.focus();
-  isTyping = true;
-
-  textInput.addEventListener('blur', finalizeText);
-  textInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      finalizeText();
-    }
-  });
+function removeTextBox(box) {
+  if (!box) return;
+  const idx = textBoxes.indexOf(box);
+  if (idx !== -1) {
+    textBoxes.splice(idx, 1);
+  }
+  if (box.element && box.element.parentNode) {
+    box.element.parentNode.removeChild(box.element);
+  }
+  if (activeTextBox === box) {
+    activeTextBox = null;
+  }
+  updateTextBoxInteractivity();
+  updateButtonsState();
 }
 
-function finalizeText() {
-  if (!textInput) return;
-  const text = textInput.value.trim();
-  if (text) {
-    const rect = textInput.getBoundingClientRect();
-    const containerRect = container.getBoundingClientRect();
+function clearTextBoxes() {
+  while (textBoxes.length) {
+    removeTextBox(textBoxes[textBoxes.length - 1]);
+  }
+}
+
+function resolveLineHeight(value, fontSizePx) {
+  const size = Number.isFinite(fontSizePx) && fontSizePx > 0 ? fontSizePx : 16;
+  if (!value || value === 'normal') {
+    return size * 1.2;
+  }
+  if (value.endsWith('px')) {
+    const px = parseFloat(value);
+    return Number.isFinite(px) ? px : size * 1.2;
+  }
+  if (value.endsWith('%')) {
+    const percent = parseFloat(value);
+    return Number.isFinite(percent) ? size * (percent / 100) : size * 1.2;
+  }
+  if (value.endsWith('em')) {
+    const em = parseFloat(value);
+    return Number.isFinite(em) ? size * em : size * 1.2;
+  }
+  const numeric = parseFloat(value);
+  if (Number.isFinite(numeric)) {
+    if (value.trim() === `${numeric}`) {
+      return size * numeric;
+    }
+    return numeric;
+  }
+  return size * 1.2;
+}
+
+function renderTextBoxesToContext(targetCtx) {
+  if (!textBoxes.length) return;
+  const containerRect = container.getBoundingClientRect();
+  targetCtx.save();
+  targetCtx.scale(dpr, dpr);
+  textBoxes.forEach(box => {
+    const el = box.element;
+    if (!el) return;
+    const style = window.getComputedStyle(el);
+    const rect = el.getBoundingClientRect();
     const x = rect.left - containerRect.left;
     const y = rect.top - containerRect.top;
-    const color = textInput.style.color;
-    const size = Number(sizeInput.value);
-    textEntries.push({ x, y, text, color, size });
-    drawTexts();
-    // Redraw all stored texts over strokes
-    fullRedraw();
-    ctx.save();
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    textEntries.forEach(entry => {
-      ctx.fillStyle = entry.color;
-      ctx.font = `${entry.size * 5}px sans-serif`;
-      ctx.textBaseline = 'top';
-      ctx.fillText(entry.text, entry.x, entry.y);
+    const paddingLeft = parseFloat(style.paddingLeft) || 0;
+    const paddingTop = parseFloat(style.paddingTop) || 0;
+    const font = style.font || `${style.fontStyle || 'normal'} ${style.fontWeight || '400'} ${style.fontSize || '16px'} ${style.fontFamily || 'sans-serif'}`;
+    targetCtx.font = font;
+    targetCtx.fillStyle = style.color || '#000000';
+    targetCtx.textBaseline = 'top';
+    const fontSizePx = parseFloat(style.fontSize) || 16;
+    const lineHeight = resolveLineHeight(style.lineHeight || '', fontSizePx);
+    const lines = el.value.split('\n');
+    lines.forEach((line, index) => {
+      targetCtx.fillText(line, x + paddingLeft, y + paddingTop + index * lineHeight);
     });
-    ctx.restore();
-  }
-  container.removeChild(textInput);
-  textInput = null;
-  isTyping = false;
+  });
+  targetCtx.restore();
 }
 
 clearBtn.addEventListener('click', () => {
-  if (history.length === 0) return;
+  if (history.length === 0 && textBoxes.length === 0) return;
   history.length = 0;
   redoStack.length = 0;
   fullRedraw();
+  clearTextBoxes();
 });
 
 savePngBtn.addEventListener('click', () => {
@@ -419,6 +612,7 @@ savePngBtn.addEventListener('click', () => {
   
   // Draw the original canvas on top
   tempCtx.drawImage(canvas, 0, 0);
+  renderTextBoxesToContext(tempCtx);
   
   // Export as PNG
   const link = document.createElement('a');
@@ -440,8 +634,8 @@ saveSvgBtn.addEventListener('click', () => {
 
 // Analyze with AI functionality
 analyzeBtn.addEventListener('click', async () => {
-  if (history.length === 0) {
-    alert('Please draw something on the whiteboard first!');
+  if (history.length === 0 && textBoxes.length === 0) {
+    alert('Please add drawings or text on the whiteboard first!');
     return;
   }
   
@@ -467,6 +661,7 @@ analyzeBtn.addEventListener('click', async () => {
     
     // Draw the original canvas on top
     tempCtx.drawImage(canvas, 0, 0);
+    renderTextBoxesToContext(tempCtx);
     
     // Convert to blob
     const blob = await new Promise(resolve => {
@@ -625,12 +820,13 @@ window.addEventListener('resize', () => {
 /* Initial setup */
 setCanvasSize();
 updateButtonsState();
+updateTextBoxInteractivity();
 
 /* Controls state */
 function updateButtonsState() {
   undoBtn.disabled = history.length === 0;
   redoBtn.disabled = redoStack.length === 0;
-  clearBtn.disabled = history.length === 0;
+  clearBtn.disabled = history.length === 0 && textBoxes.length === 0;
 }
 
 /* SVG Export */
