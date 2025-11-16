@@ -55,6 +55,7 @@ let lastPoint = null;
 let currentStroke = null;
 let needsFullRedraw = true;
 let bgColor = bgColorInput ? bgColorInput.value : '#ffffff';
+let boardSize = { width: 0, height: 0 };
 canvas.style.backgroundColor = bgColor;
 canvas.style.backgroundColor = bgColor;
 
@@ -62,6 +63,7 @@ canvas.style.backgroundColor = bgColor;
 const history = [];      // Array<Stroke>
 const redoStack = [];    // Array<Stroke>
 const textBoxes = [];
+const TEXT_BOX_MARGIN = 24;
 
 /* Stroke structure:
 {
@@ -73,10 +75,21 @@ const textBoxes = [];
 */
 
 /* Utilities */
+function getBoardDimensions() {
+  if (boardSize.width > 0 && boardSize.height > 0) return boardSize;
+  const rect = container.getBoundingClientRect();
+  boardSize = {
+    width: Math.max(1, Math.floor(rect.width || 1)),
+    height: Math.max(1, Math.floor(rect.height || 1)),
+  };
+  return boardSize;
+}
+
 function setCanvasSize() {
   const rect = container.getBoundingClientRect();
-  const cssW = Math.max(1, Math.floor(rect.width));
-  const cssH = Math.max(1, Math.floor(rect.height));
+  const cssW = Math.max(1, Math.floor(rect.width || 1));
+  const cssH = Math.max(1, Math.floor(rect.height || 1));
+  boardSize = { width: cssW, height: cssH };
   dpr = Math.max(1, window.devicePixelRatio || 1);
 
   // Preserve content by redrawing from history after resize
@@ -91,7 +104,7 @@ function setCanvasSize() {
   ctx.lineJoin = 'round';
 
   fullRedraw();
-  textBoxes.forEach(updateTextBoxBounds);
+  textBoxes.forEach(clampTextBoxPosition);
 }
 
 function getPos(evt) {
@@ -114,6 +127,13 @@ function getPos(evt) {
 }
 
 function lerp(a, b, t) { return a + (b - a) * t; }
+
+function clamp(value, min, max) {
+  if (!Number.isFinite(value)) return min;
+  if (value < min) return min;
+  if (value > max) return max;
+  return value;
+}
 
 /* Smoothing: simple moving average with window=2 using lastPoint */
 function smoothedPoint(prev, curr) {
@@ -370,11 +390,20 @@ function autoSizeTextBox(box) {
 
   const width = Math.max(minWidth, Math.ceil(contentWidth + paddingX + borderX + 2));
   const height = Math.max(minHeight, el.scrollHeight);
+  const { width: boardWidth, height: boardHeight } = getBoardDimensions();
+  const maxWidth = Math.max(minWidth, boardWidth - TEXT_BOX_MARGIN * 2);
+  const maxHeight = Math.max(minHeight, boardHeight - TEXT_BOX_MARGIN * 2);
+  const clampedWidth = Math.min(width, maxWidth);
+  const clampedHeight = Math.min(height, maxHeight);
+  const limited = width > maxWidth || height > maxHeight;
 
-  el.style.height = `${height}px`;
-  el.style.width = `${width}px`;
+  el.style.height = `${clampedHeight}px`;
+  el.style.width = `${clampedWidth}px`;
+  el.style.overflow = 'hidden';
 
-  updateTextBoxBounds(box);
+  clampTextBoxPosition(box);
+  box.isAtLimit = limited;
+  return limited;
 }
 
 function setActiveTextBox(box) {
@@ -406,28 +435,63 @@ function updateTextBoxInteractivity() {
   canvas.style.cursor = interactive ? 'text' : 'crosshair';
 }
 
+function getSafeTextBoxPosition(x, y, boxWidth, boxHeight) {
+  const { width: boardWidth, height: boardHeight } = getBoardDimensions();
+  const margin = TEXT_BOX_MARGIN;
+  const usableWidth = Math.max(0, boardWidth - boxWidth);
+  const usableHeight = Math.max(0, boardHeight - boxHeight);
+  const fitsWithMarginX = usableWidth >= margin * 2;
+  const fitsWithMarginY = usableHeight >= margin * 2;
+  const fallbackLeft = Math.max(0, usableWidth / 2);
+  const fallbackTop = Math.max(0, usableHeight / 2);
+
+  return {
+    left: fitsWithMarginX ? clamp(x, margin, usableWidth - margin) : fallbackLeft,
+    top: fitsWithMarginY ? clamp(y, margin, usableHeight - margin) : fallbackTop,
+  };
+}
+
+function clampTextBoxPosition(box) {
+  if (!box || !box.element) return;
+  const el = box.element;
+  const boxWidth = el.offsetWidth;
+  const boxHeight = el.offsetHeight;
+  const currentLeft = parseFloat(el.style.left) || 0;
+  const currentTop = parseFloat(el.style.top) || 0;
+  const { left, top } = getSafeTextBoxPosition(currentLeft, currentTop, boxWidth, boxHeight);
+
+  el.style.left = `${left}px`;
+  el.style.top = `${top}px`;
+  updateTextBoxBounds(box);
+}
+
 function createTextBox(x, y) {
   const textarea = document.createElement('textarea');
   textarea.className = 'text-entry';
   textarea.spellcheck = false;
   textarea.value = '';
   textarea.style.position = 'absolute';
-  textarea.style.left = `${x}px`;
-  textarea.style.top = `${y}px`;
   textarea.style.color = colorInput.value;
 
   const fontPx = Number(sizeInput.value) * 5;
   textarea.style.fontSize = `${fontPx}px`;
+  const minWidth = 80;
+  const minHeight = fontPx * 1.35;
 
   const box = {
     id: `textbox-${++textBoxCounter}`,
     element: textarea,
-    minWidth: 80,
-    minHeight: fontPx * 1.35,
+    minWidth,
+    minHeight,
     bounds: null,
     z: 0,
+    lastValidValue: '',
+    isAtLimit: false,
   };
 
+  const initialPos = getSafeTextBoxPosition(x, y, minWidth, minHeight);
+  textarea.style.left = `${initialPos.left}px`;
+  textarea.style.top = `${initialPos.top}px`;
   textarea.dataset.boxId = box.id;
 
   textarea.addEventListener('input', () => {
@@ -435,7 +499,19 @@ function createTextBox(x, y) {
       removeTextBox(box);
       return;
     }
-    autoSizeTextBox(box);
+    const prevValue = box.lastValidValue || '';
+    const isInsertion = textarea.value.length > prevValue.length;
+    const limited = autoSizeTextBox(box);
+    if (limited && isInsertion) {
+      textarea.value = prevValue;
+      autoSizeTextBox(box);
+      textarea.classList.add('text-entry--limit');
+      const caretPos = prevValue.length;
+      textarea.setSelectionRange(caretPos, caretPos);
+      return;
+    }
+    box.lastValidValue = textarea.value;
+    textarea.classList.toggle('text-entry--limit', limited);
   });
 
   textarea.addEventListener('focus', () => {
@@ -447,6 +523,7 @@ function createTextBox(x, y) {
       activeTextBox = null;
     }
     textarea.classList.remove('text-entry--active');
+    textarea.classList.remove('text-entry--limit');
   });
 
   textarea.addEventListener('pointerdown', () => {
@@ -457,7 +534,9 @@ function createTextBox(x, y) {
   textBoxes.push(box);
   bringTextBoxToFront(box);
   updateTextBoxInteractivity();
-  autoSizeTextBox(box);
+  box.lastValidValue = textarea.value;
+  const limited = autoSizeTextBox(box);
+  textarea.classList.toggle('text-entry--limit', limited);
   updateButtonsState();
   return box;
 }
