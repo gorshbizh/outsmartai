@@ -45,6 +45,9 @@ const confidenceText = document.getElementById('confidence-text');
 ossLink.href = 'https://opensource.org/license/mit';
 ossLink.textContent = 'Open Source (MIT)';
 
+const BOARD_BASE_WIDTH = 1200;
+const BOARD_BASE_HEIGHT = 700;
+
 /* Canvas 2D Context */
 const ctx = canvas.getContext('2d', { alpha: true, desynchronized: true, willReadFrequently: false });
 
@@ -55,7 +58,7 @@ let lastPoint = null;
 let currentStroke = null;
 let needsFullRedraw = true;
 let bgColor = bgColorInput ? bgColorInput.value : '#ffffff';
-let boardSize = { width: 0, height: 0 };
+let boardSize = { width: BOARD_BASE_WIDTH, height: BOARD_BASE_HEIGHT };
 canvas.style.backgroundColor = bgColor;
 canvas.style.backgroundColor = bgColor;
 
@@ -76,19 +79,12 @@ const TEXT_BOX_MARGIN = 24;
 
 /* Utilities */
 function getBoardDimensions() {
-  if (boardSize.width > 0 && boardSize.height > 0) return boardSize;
-  const rect = container.getBoundingClientRect();
-  boardSize = {
-    width: Math.max(1, Math.floor(rect.width || 1)),
-    height: Math.max(1, Math.floor(rect.height || 1)),
-  };
   return boardSize;
 }
 
 function setCanvasSize() {
-  const rect = container.getBoundingClientRect();
-  const cssW = Math.max(1, Math.floor(rect.width || 1));
-  const cssH = Math.max(1, Math.floor(rect.height || 1));
+  const cssW = BOARD_BASE_WIDTH;
+  const cssH = BOARD_BASE_HEIGHT;
   boardSize = { width: cssW, height: cssH };
   dpr = Math.max(1, window.devicePixelRatio || 1);
 
@@ -97,6 +93,8 @@ function setCanvasSize() {
   canvas.height = Math.floor(cssH * dpr);
   canvas.style.width = cssW + 'px';
   canvas.style.height = cssH + 'px';
+  container.style.width = cssW + 'px';
+  container.style.height = cssH + 'px';
 
   ctx.setTransform(1, 0, 0, 1, 0, 0); // reset
   ctx.scale(dpr, dpr);
