@@ -111,12 +111,29 @@ Expected response:
 
 ## Development
 
+### Running Tests
+
+Use the backend virtualenv (so dependencies like Pillow are available), then run tests from either location:
+
+```bash
+# From repo root:
+backend/venv/Scripts/python.exe -m unittest discover -s backend/tests -p "test_*.py"
+
+# Or from backend/:
+# venv/Scripts/python.exe -m unittest discover -s tests -p "test_*.py"
+```
+
+To run the tests against a specific image, set `TEST_IMAGE_PATH` (or drop a file at `backend/tests/fixtures/test.png`).
+
+To run a real (networked) LLM call as an integration test, also set `RUN_LLM_INTEGRATION=1` plus your `LLM_PROVIDER` and `LLM_API_KEY`.
+
 ### Project Structure
 
 ```
 backend/
 ├── app.py              # Main Flask application
 ├── requirements.txt    # Python dependencies
+├── tests/              # Unit tests (unittest)
 ├── .venv/             # Virtual environment (ignored by git)
 └── README.md          # This file
 ```

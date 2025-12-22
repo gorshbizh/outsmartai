@@ -10,10 +10,10 @@ from typing import Dict, List, Any, Optional
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from PIL import Image
-from dotenv import load_dotenv
+from dotenv import load_dotenv, find_dotenv
 
-# Load environment variables
-load_dotenv()
+# Load environment variables (search up the directory tree so running from `backend/` still finds repo-root `.env`)
+load_dotenv(find_dotenv())
 
 app = Flask(__name__)
 CORS(app)
@@ -66,20 +66,77 @@ class LLMService:
                 api_key=self.api_key,
                 timeout=30.0
             )
+
+            sys_prompt = '''
+You are a experienced 1 to 12 grade math teacher that are good at reading images created from hand written notes and analyzing diagrams to understand the content of the notes that can properly evaluate if the problem was done correctly.
+The image will contain a black inked portion describing the problem, and a grey inked portion of the solution for this problem.
+These two sections needs to be carefully evaluated if the math problem that is written in black ink was done correctly, following below steps:
+  1. Perform a detailed text recognition of ALL content on the image.  The problem portion will be formally printed, but be aware the solution portion is from hand writing and may require careful examination and recognization
+  2. Try to understand the content based on the mathmetical context of this problem.  Understand what the problem is about and the available solutions to the problem.
+  3. Pay attention to the solution to reasoning through the steps in it, following below three citeria to give a points based grading out of 100:
+    3a. evaluate the steps as whole that serve the purpose of solving the problem. If this criteria is not followed then take away all 100 points.
+    3b. the logical relationship from step to step is reasonable, coherent and relavent to the problem.  The deduction or derivation from one step to the next is correct and accurate. For every logical flaw and violation of this critieria take away 20 points.
+    3c. there is no local computation, logic, or syntax error within each step. For each local mistake take away 10 points.
+  4. Everytime points are taken away, present an explanation for each flaw that was detected.
+Format as JSON with: a list of the points taken away and their corresponding reason for why the points were taken away.
+**OUTPUT FORMAT**
+CRITICAL: generate output in STRICT JSON format without any comments, explanations, or additional 
+
+You must respond with valid JSON in this exact format:
+
+```json
+{
+    "total_points": int,
+    "deductions":
+      {
+        "deducted_points": [int],
+        "deduction_reason": [string]
+      },
+    "confidence_score": float,
+    "summary": string
+}
+```
+
+**Field Definitions:**
+-total_points: the total amount of points given for the solution
+-deductions: A list of all total deductions with the subtracted points value along with their corresponding explanations for why the deduction occurred
+-deductions_points: Either 100, 20, or 10 based on the violations
+-deduction_reason: The reason for the violation that caused the points deduction
+-confidence_score: Float (0.0-1.0) indicating confidence in the total grading process
+-summary: summarize the evalution of the solution by the student and include the strengths and weaknesses of the student, demonstrated in the solution 
+
+**EXAMPLE OUTPUT**
+```json
+{
+    "total_points": 70,
+    "deductions":{
+        "deducted_points" [20, 10],
+        "deduction_reason": [
+          "the logical relationship between step 3 and step 4 were illogical and did not properly connect the line of thought from step 3-4",
+          "there was a local computational error in step 6, 6 x 9 = 54, not 45 ",
+        ]
+    },
+    "confidence_score" 0.95
+    "summary": "the student had a good understanding of the nature of this problem, but needs further background knowledge such as proficiency in the multiplication table and logical connection between the steps."
+} 
+'''
+            user_prompt = """
+Please grade the problem and solution shown in the image.
+"""
             
             response = client.chat.completions.create(
-                model="gpt-4o",  # Using gpt-4o as it's the latest available vision model
+                model="gpt-5.2",  # Using gpt-4o as it's the latest available vision model
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are a helpful math teacher that can read text from images created from hand written notes and analyze diagrams to understand the content of the notes."
+                        "content": sys_prompt
                     },
                     {
                         "role": "user",
                         "content": [
                             {
                                 "type": "text",
-                                "text": "Analyze this whiteboard image carefully. Please provide detailed text recognition of ALL written content you can see, including handwritten text, printed text, numbers, symbols, and equations. Also describe visual elements like diagrams, shapes, arrows, and drawings. Format as JSON with: text_recognition (string with all text found), visual_elements (string), content_analysis (string), suggestions (array), confidence (0-1)."
+                                "text": user_prompt,
                             },
                             {
                                 "type": "image_url",
@@ -91,7 +148,7 @@ class LLMService:
                         ]
                     }
                 ],
-                max_tokens=1500,
+                max_completion_tokens=15000,
                 temperature=0.1
             )
             
