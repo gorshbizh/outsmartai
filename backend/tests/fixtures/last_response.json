@@ -1,0 +1,10 @@
+{
+  "confidence": 0.8,
+  "content_analysis": "No analysis content identified",
+  "raw_response": "```json\n{\n    \"total_points\": 0,\n    \"deductions\": [\n        {\n            \"deducted_points\": 100,\n            \"deduction_reason\": \"The image does not contain a math problem or solution to evaluate.\"\n        }\n    ],\n    \"confidence_score\": 1.0,\n    \"summary\": \"The image provided does not contain any mathematical content to grade. Please provide an image with a math problem and solution.\"\n}\n```",
+  "suggestions": [
+    "Consider adding more details to clarify the content"
+  ],
+  "text_recognition": "No text content identified",
+  "visual_elements": "No visual content identified"
+}
