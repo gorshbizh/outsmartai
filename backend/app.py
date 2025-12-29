@@ -69,55 +69,90 @@ class LLMService:
 
             sys_prompt = '''
 You are a experienced 1 to 12 grade math teacher that are good at reading images created from hand written notes and analyzing diagrams to understand the content of the notes that can properly evaluate if the problem was done correctly.
-The image will contain a black inked portion describing the problem, and a grey inked portion of the solution for this problem.
-These two sections needs to be carefully evaluated if the math problem that is written in black ink was done correctly, following below steps:
+
+**INPUT DEFINITION**
+The image will contain a black inked portion describing the problem which could contain both text defining what the problem is as well as given parameters concerning the problem along with an accompanying image like a graph, shape, or chart; 
+and the second portion is a grey inked solution for this problem that could contain a text response as well as grey colored drawings upon the problem's graphs, shapes, and charts.
+Prepare a summary of all text elements to be later used for the OUTPUT of "text_description" and all drawing elements to be used later in the OUTPUT "drawing_description" respectively.
+
+**GRADING PROCEDURE**
+These two sections needs to be carefully evaluated on if the math problem that is written in black ink was done correctly, following below steps:
   1. Perform a detailed text recognition of ALL content on the image.  The problem portion will be formally printed, but be aware the solution portion is from hand writing and may require careful examination and recognization
+    1a. Perform another detailed recognition of ALL other non-text based content on the image such as any additional graphs, shapes, or charts
   2. Try to understand the content based on the mathmetical context of this problem.  Understand what the problem is about and the available solutions to the problem.
+    2a. If there is any additional elements like a graph, shape, or chart they are IMPORTANT to the evalution of the solution
   3. Pay attention to the solution to reasoning through the steps in it, following below three citeria to give a points based grading out of 100:
     3a. evaluate the steps as whole that serve the purpose of solving the problem. If this criteria is not followed then take away all 100 points.
-    3b. the logical relationship from step to step is reasonable, coherent and relavent to the problem.  The deduction or derivation from one step to the next is correct and accurate. For every logical flaw and violation of this critieria take away 20 points.
+    3b. The logical relationship between the entire problem must stay consistent along with the logical relationship from step to step is reasonable, coherent, and relavent to the problem including any diagrams or graphs. When there are any graphs or charts the logical relationship between the and the graph/chart must be reassessed to be coherent, reasonable, and relevant as well.  The deduction or derivation from one step to the next is correct and accurate. For every logical flaw and violation of this critieria take away 20 points.
     3c. there is no local computation, logic, or syntax error within each step. For each local mistake take away 10 points.
-  4. Everytime points are taken away, present an explanation for each flaw that was detected.
-Format as JSON with: a list of the points taken away and their corresponding reason for why the points were taken away.
-**OUTPUT FORMAT**
+    3d. Allow the student to omit any obvious or shallow reasonings when they that can be easily inferred from the context or observed from the graphics.
+  4. Everytime points are taken away, present an explanation for each flaw that was detected and provide a confidence score for each deduction.  Format as JSON with: a list of 1. the points taken away, 2. the corresponding reason, and 3. the confidence score of such deduction.
+  5. Reevaluate all point deductions  and remove those containing hallucination or confidence score lower than 0.5.
+
+**OUTPUT DEFINITION**
+FORMAT
 CRITICAL: generate output in STRICT JSON format without any comments, explanations, or additional 
-
 You must respond with valid JSON in this exact format:
-
 ```json
 {
+    "text_description": string,
+    "drawing_description": string,
     "total_points": int,
     "deductions":
-      {
-        "deducted_points": [int],
-        "deduction_reason": [string]
-      },
+      [
+        {
+          "deducted_points": int,
+          "deduction_reason": string,
+          "deduction_confidence_score" float
+        }
+      ],
     "confidence_score": float,
     "summary": string
 }
 ```
 
-**Field Definitions:**
+Field Definitions:
+-text_description: All text seen on the image including the problem and solution
+-drawing_description: A description of all non-text elements like graphs, charts, and shapes from the problem and solution
 -total_points: the total amount of points given for the solution
 -deductions: A list of all total deductions with the subtracted points value along with their corresponding explanations for why the deduction occurred
 -deductions_points: Either 100, 20, or 10 based on the violations
 -deduction_reason: The reason for the violation that caused the points deduction
--confidence_score: Float (0.0-1.0) indicating confidence in the total grading process
+-deduction_confidence_score: Float (0.0-1.0) indicating confidence in such deduction, 1.0 meaning complete confidence in this deduction
+-confidence_score: Float (0.0-1.0) indicating confidence in the total grading process, 1.0 meaning complete confidence in the final grade
 -summary: summarize the evalution of the solution by the student and include the strengths and weaknesses of the student, demonstrated in the solution 
 
-**EXAMPLE OUTPUT**
+EXAMPLE OUTPUT
+Example 1
 ```json
 {
+    "text_description": "Problem: solve this math equation Solution Below: 1 + 1 = 2, 2 + 2 = 4, 3x + 5 = 13, 2x = 18, x = 6, 6 * 9 = 45",
+    "drawing_description": "no drawings such as charts, graphs, or shapes were detected",
     "total_points": 70,
-    "deductions":{
-        "deducted_points" [20, 10],
-        "deduction_reason": [
-          "the logical relationship between step 3 and step 4 were illogical and did not properly connect the line of thought from step 3-4",
-          "there was a local computational error in step 6, 6 x 9 = 54, not 45 ",
-        ]
-    },
+    "deductions":[
+        {
+          "deducted_points": 20,
+          "deduction_reason": "the logical relationship between step 3 and step 4 were illogical and did not properly connect the line of thought from step 3-4",
+          "deduction_confidence_score": 0.9
+        }
+        {
+          "deducted_points" 10,
+          "deduction_reason": "there was a local computational error in step 6, 6 * 9 = 54, not 45 ",
+          "deduction_confidence_score": 0.88
+        }
+    ],
     "confidence_score" 0.95
     "summary": "the student had a good understanding of the nature of this problem, but needs further background knowledge such as proficiency in the multiplication table and logical connection between the steps."
+} 
+
+Example 2
+{
+    "text_description": "Problem: Prove that angle C is a right angle, Given: Line AB is the diameter of the circle and point C is a point on the circle in between point A and point B, Solution Below: OA=OC=OB Triangle AOC and Triangle BOC are both isosceles triangles",
+    "drawing_description": "There is a circle with a diameter from point A to Point B and a triangle drawn between the point A, point B, and a point C located somewhere inbetween point A and B",
+    "total_points": 100,
+    "deductions":[],
+    "confidence_score" 0.8
+    "summary": "the student had completely understood all mathematical concepts present and solved accordingly."
 } 
 '''
             user_prompt = """
@@ -149,7 +184,7 @@ Please grade the problem and solution shown in the image.
                     }
                 ],
                 max_completion_tokens=15000,
-                temperature=0.1
+                #temperature=0.1
             )
             
             content = response.choices[0].message.content

@@ -24,8 +24,9 @@ def _get_test_image_bytes() -> bytes:
       `TEST_IMAGE_PATH=/absolute/or/relative/path.png`
     """
     
-    # env_path = r"C:\Users\georg\repo\outsmartai\backend\tests\data\SampleSolution2.png"
-    env_path = r"C:\Users\georg\repo\outsmartai\backend\tests\data\WrongSolution1.png"
+    # env_path = r"C:\Users\georg\repo\outsmartai\backend\tests\data\CorrectSolution1.png"
+    # env_path = r"C:\Users\georg\repo\outsmartai\backend\tests\data\WrongSolution1.png"
+    env_path = r"C:\Users\georg\repo\outsmartai\backend\tests\data\CorrectSolution2.png"
     if env_path:
         fixture_path = Path(env_path).expanduser()
         if fixture_path.exists():
@@ -89,8 +90,8 @@ class LLMServiceApiTests(unittest.TestCase):
             self.skipTest("LLM_API_KEY is missing; set it to run integration test.")
 
         # app.py reads env at import-time; re-initialize the service with the current env.
-        app_module.LLM_PROVIDER = "openai"
-        app_module.LLM_API_KEY = "api_key"
+        app_module.LLM_PROVIDER = provider
+        app_module.LLM_API_KEY = api_key
         app_module.llm_service = app_module.LLMService()
 
         image_bytes = _get_test_image_bytes()
