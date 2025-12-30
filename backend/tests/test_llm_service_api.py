@@ -2,6 +2,10 @@ import base64
 import io
 import json
 import os
+import sys
+import types
+import asyncio
+from contextlib import redirect_stdout
 from pathlib import Path
 import unittest
 from unittest.mock import AsyncMock, mock_open, patch
@@ -76,6 +80,134 @@ class LLMServiceApiTests(unittest.TestCase):
         self.assertEqual(response.get_json(), fake_result)
         analyze_mock.assert_awaited_once()
         self.assertEqual(analyze_mock.call_args.args[0], image_bytes)
+
+    #def test_openai_two_step_prompting_reuses_same_image_and_includes_summary(self) -> None:
+    #    image_bytes = _get_test_image_bytes()
+
+    #     class _FakeResponse:
+    #         def __init__(self, content: str):
+    #             self.choices = [types.SimpleNamespace(message=types.SimpleNamespace(content=content))]
+
+    #     class _FakeCompletions:
+    #         def __init__(self):
+    #             self.calls = []
+
+    #         def create(self, **kwargs):
+    #             self.calls.append(kwargs)
+    #             if len(self.calls) == 1:
+    #                 return _FakeResponse(
+    #                     json.dumps(
+    #                         {
+    #                             "text_description": "Problem: 1+1=? Solution: 2",
+    #                             "drawing_description": "No drawings",
+    #                             "confidence_score": 0.9,
+    #                         }
+    #                     )
+    #                 )
+    #             return _FakeResponse(
+    #                 json.dumps(
+    #                     {
+    #                         "text_description": "Problem: 1+1=? Solution: 2",
+    #                         "drawing_description": "No drawings",
+    #                         "total_points": 100,
+    #                         "deductions": [],
+    #                         "confidence_score": 0.95,
+    #                         "summary": "Correct.",
+    #                     }
+    #                 )
+    #             )
+
+    #     class _FakeOpenAI:
+    #         last_instance = None
+
+    #         def __init__(self, api_key=None, timeout=None):
+    #             self.api_key = api_key
+    #             self.timeout = timeout
+    #             self.chat = types.SimpleNamespace(completions=_FakeCompletions())
+    #             _FakeOpenAI.last_instance = self
+
+    #     fake_openai_module = types.SimpleNamespace(OpenAI=_FakeOpenAI)
+
+    #     service = app_module.LLMService()
+    #     service.provider = "openai"
+    #     service.api_key = "test-key"
+
+    #     with patch.dict(sys.modules, {"openai": fake_openai_module}):
+    #         result = asyncio.run(service._analyze_with_openai(image_bytes))
+
+    #     self.assertIsInstance(result, dict)
+    #     self.assertEqual(result.get("total_points"), 100)
+
+    #     calls = _FakeOpenAI.last_instance.chat.completions.calls
+    #     self.assertEqual(len(calls), 2)
+
+    #     # Call 1: image summary call must include the image payload.
+    #     call1_user = next(m for m in calls[0]["messages"] if m["role"] == "user")
+    #     self.assertTrue(any(p.get("type") == "image_url" for p in call1_user["content"]))
+
+    #     # Call 2: grading call must include both the image and the summary text.
+    #     call2_user = next(m for m in calls[1]["messages"] if m["role"] == "user")
+    #     self.assertTrue(any(p.get("type") == "image_url" for p in call2_user["content"]))
+    #     call2_text = next(p["text"] for p in call2_user["content"] if p.get("type") == "text")
+    #     self.assertIn("First-pass summary", call2_text)
+
+    # def test_openai_first_pass_prints_output_when_enabled(self) -> None:
+    #     image_bytes = _get_test_image_bytes()
+
+    #     class _FakeResponse:
+    #         def __init__(self, content: str):
+    #             self.choices = [types.SimpleNamespace(message=types.SimpleNamespace(content=content))]
+
+    #     class _FakeCompletions:
+    #         def __init__(self):
+    #             self.calls = []
+
+    #         def create(self, **kwargs):
+    #             self.calls.append(kwargs)
+    #             if len(self.calls) == 1:
+    #                 return _FakeResponse(
+    #                     json.dumps(
+    #                         {
+    #                             #"text_description": "Problem: 1+1=? Solution: 2",
+    #                             #"drawing_description": "No drawings",
+    #                             #"confidence_score": 0.9,
+    #                         }
+    #                     )
+    #                 )
+    #             return _FakeResponse(
+    #                 json.dumps(
+    #                     {
+    #                         "text_description": "Problem: 1+1=? Solution: 2",
+    #                         "drawing_description": "No drawings",
+    #                         "total_points": 100,
+    #                         "deductions": [],
+    #                         "confidence_score": 0.95,
+    #                         "summary": "Correct.",
+    #                     }
+    #                 )
+    #             )
+
+    #     class _FakeOpenAI:
+    #         def __init__(self, api_key=None, timeout=None):
+    #             self.api_key = api_key
+    #             self.timeout = timeout
+    #             self.chat = types.SimpleNamespace(completions=_FakeCompletions())
+
+    #     fake_openai_module = types.SimpleNamespace(OpenAI=_FakeOpenAI)
+
+    #     service = app_module.LLMService()
+    #     service.provider = "openai"
+    #     service.api_key = "test-key"
+
+    #    stdout = io.StringIO()
+    #    with patch.dict(os.environ, {"PRINT_LLM_FIRST_PASS": "1"}, clear=False), patch.dict(
+    #        sys.modules, {"openai": fake_openai_module}
+    #    ), redirect_stdout(stdout):
+    #        asyncio.run(service._analyze_with_openai(image_bytes))
+
+    #    output = stdout.getvalue()
+    #    self.assertIn("LLM First Pass Output (summary)", output)
+    #    self.assertIn("text_description", output)
 
     @unittest.skipUnless(
         os.getenv("RUN_LLM_INTEGRATION") == "1",
