@@ -67,7 +67,15 @@ class LLMService:
                 timeout=30.0
             )
 
-            sys_prompt = '''
+            image_content = {
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:image/{image_format};base64,{base64_image}",
+                    "detail": "high",
+                },
+            }
+
+            summary_sys_prompt = """
 You are a experienced 1 to 12 grade math teacher that are good at reading images created from hand written notes and analyzing diagrams to understand the content of the notes that can properly evaluate if the problem was done correctly.
 
 **INPUT DEFINITION**
@@ -81,13 +89,6 @@ These two sections needs to be carefully evaluated on if the math problem that i
     1a. Perform another detailed recognition of ALL other non-text based content on the image such as any additional graphs, shapes, or charts
   2. Try to understand the content based on the mathmetical context of this problem.  Understand what the problem is about and the available solutions to the problem.
     2a. If there is any additional elements like a graph, shape, or chart they are IMPORTANT to the evalution of the solution
-  3. Pay attention to the solution to reasoning through the steps in it, following below three citeria to give a points based grading out of 100:
-    3a. evaluate the steps as whole that serve the purpose of solving the problem. If this criteria is not followed then take away all 100 points.
-    3b. The logical relationship between the entire problem must stay consistent along with the logical relationship from step to step is reasonable, coherent, and relavent to the problem including any diagrams or graphs. When there are any graphs or charts the logical relationship between the and the graph/chart must be reassessed to be coherent, reasonable, and relevant as well.  The deduction or derivation from one step to the next is correct and accurate. For every logical flaw and violation of this critieria take away 20 points.
-    3c. there is no local computation, logic, or syntax error within each step. For each local mistake take away 10 points.
-    3d. Allow the student to omit any obvious or shallow reasonings when they that can be easily inferred from the context or observed from the graphics.
-  4. Everytime points are taken away, present an explanation for each flaw that was detected and provide a confidence score for each deduction.  Format as JSON with: a list of 1. the points taken away, 2. the corresponding reason, and 3. the confidence score of such deduction.
-  5. Reevaluate all point deductions  and remove those containing hallucination or confidence score lower than 0.5.
 
 **OUTPUT DEFINITION**
 FORMAT
@@ -96,7 +97,100 @@ You must respond with valid JSON in this exact format:
 ```json
 {
     "text_description": string,
-    "drawing_description": string,
+    "drawing_description": string
+    "steps":
+      [
+        "step1",
+        "step2",
+        "step3"
+      ]
+}
+
+Field Definitions:
+-text_description: All text seen on the image including the problem and solution
+-drawing_description: A description of all non-text elements like graphs, charts, and shapes from the problem and solution
+-steps: A list of all total steps the student took during the solution DO NOT ADD ANY ADDITIONAL DESCRIPTIONS, just the exact steps that the student took.
+
+EXAMPLE OUTPUT
+Example 1
+```json
+{
+    "text_description": "Problem: solve this math equation Solution Below: 1 + 1 = 2, 2 + 2 = 4, 3x + 5 = 13, 2x = 18, x = 6, 6 * 9 = 45",
+    "drawing_description": "no drawings such as charts, graphs, or shapes were detected"
+    "steps":
+      [
+        "1 + 1 = 2",
+        "2 + 2 = 4",
+        "3x + 5 = 13",
+        "2x = 18",
+        "x = 6",
+        "6 * 9 = 45"
+      ]
+}
+
+Example 2
+{
+    "text_description": "Problem: Prove that angle C is a right angle, Given: Line AB is the diameter of the circle and point C is a point on the circle in between point A and point B, Solution Below: OA=OC=OB Triangle AOC and Triangle BOC are both isosceles triangles",
+    "drawing_description": "There is a circle with a diameter from point A to Point B and a triangle drawn between the point A, point B, and a point C located somewhere inbetween point A and B"
+    "steps":
+      [
+        "OA = OC = OB",
+        "Triangle AOC and Triangle BOC are both isosceles triangles so",
+        "angle OAC = angle OCA and angle OBC = angle OCB"
+      ]
+}
+"""
+            summary_user_prompt = "Summarize everything you can see in the image including text and ALL visual graphics such as charts, graphs, and shapes for downstream grading."
+
+            summary_content = ""
+            try:
+                summary_response = client.chat.completions.create(
+                    model="gpt-5.2",
+                    messages=[
+                        {"role": "system", "content": summary_sys_prompt},
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": summary_user_prompt},
+                                image_content,
+                            ],
+                        },
+                    ],
+                    max_completion_tokens=15000,
+                    temperature=0,
+                )
+                summary_content = (summary_response.choices[0].message.content or "").strip()
+
+                if os.getenv("PRINT_LLM_FIRST_PASS") == "1" or os.getenv("FLASK_DEBUG", "False").lower() == "true":
+                    print("\n=== LLM First Pass Output (summary) ===", flush=True)
+                    print(summary_content, flush=True)
+                    print("=== End LLM First Pass Output ===\n", flush=True)
+            except Exception as e:
+                print(f"OpenAI summary pass error: {str(e)}")
+
+            sys_prompt = '''
+You are a experienced 1 to 12 grade math grader that are good at reading images created from hand written notes and analyzing diagrams to grade the content of the solution that can properly evaluate how many points the solution deserves.
+
+**INPUT DEFINITION**
+The image will contain a black inked portion describing the problem which could contain both text defining what the problem is as well as given parameters concerning the problem along with an accompanying image like a graph, shape, or chart; 
+and the second portion is a grey inked solution for this problem that could contain a text response as well as grey colored drawings upon the problem's graphs, shapes, and charts.
+
+**GRADING PROCEDURE**
+These two sections needs to be carefully evaluated on if the math problem that is written in black ink was done correctly, following below steps:
+  1. Pay attention to the solution to reasoning through the steps in it, following below three citeria to give a points based grading out of 100:
+    1a. evaluate the steps as whole that serve the purpose of solving the problem. If this criteria is not followed then take away all 100 points.
+    1b. The logical relationship between the entire problem must stay consistent along with the logical relationship from step to step is reasonable, coherent, and relavent to the problem including any diagrams or graphs. When there are any graphs or charts the logical relationship between the and the graph/chart must be reassessed to be coherent, reasonable, and relevant as well.  The deduction or derivation from one step to the next is correct and accurate. For every logical flaw and violation of this critieria take away 20 points.
+    1c. there is no local computation, logic, or syntax error within each step. For each local mistake take away 10 points.
+    1d. Allow for some steps in the reasoning to be skipped if the transition is valid and common at this level or if the reasoning can be easily inferred from the existing context and graphics. But do not allow for the reasoning to be skipped if it hides a likely mistake or lack the sufficient surrounding context to justify such a leap of logic.
+  2. Everytime points are taken away, present an explanation for each flaw that was detected and provide a confidence score for each deduction.  Format as JSON with: a list of 1. the points taken away, 2. the corresponding reason, and 3. the confidence score of such deduction.
+  3. Reevaluate all point deductions and remove those containing hallucination or confidence score lower than 0.5.
+
+**OUTPUT DEFINITION**
+FORMAT
+CRITICAL: generate output in STRICT JSON format without any comments, explanations, or additional 
+You must respond with valid JSON in this exact format:
+```json
+{
     "total_points": int,
     "deductions":
       [
@@ -112,8 +206,6 @@ You must respond with valid JSON in this exact format:
 ```
 
 Field Definitions:
--text_description: All text seen on the image including the problem and solution
--drawing_description: A description of all non-text elements like graphs, charts, and shapes from the problem and solution
 -total_points: the total amount of points given for the solution
 -deductions: A list of all total deductions with the subtracted points value along with their corresponding explanations for why the deduction occurred
 -deductions_points: Either 100, 20, or 10 based on the violations
@@ -126,8 +218,6 @@ EXAMPLE OUTPUT
 Example 1
 ```json
 {
-    "text_description": "Problem: solve this math equation Solution Below: 1 + 1 = 2, 2 + 2 = 4, 3x + 5 = 13, 2x = 18, x = 6, 6 * 9 = 45",
-    "drawing_description": "no drawings such as charts, graphs, or shapes were detected",
     "total_points": 70,
     "deductions":[
         {
@@ -147,20 +237,20 @@ Example 1
 
 Example 2
 {
-    "text_description": "Problem: Prove that angle C is a right angle, Given: Line AB is the diameter of the circle and point C is a point on the circle in between point A and point B, Solution Below: OA=OC=OB Triangle AOC and Triangle BOC are both isosceles triangles",
-    "drawing_description": "There is a circle with a diameter from point A to Point B and a triangle drawn between the point A, point B, and a point C located somewhere inbetween point A and B",
     "total_points": 100,
     "deductions":[],
     "confidence_score" 0.8
     "summary": "the student had completely understood all mathematical concepts present and solved accordingly."
 } 
 '''
-            user_prompt = """
+            user_prompt = f"""
+{summary_content}
+            
 Please grade the problem and solution shown in the image.
 """
-            
+          
             response = client.chat.completions.create(
-                model="gpt-5.2",  # Using gpt-4o as it's the latest available vision model
+                model="gpt-5.2",
                 messages=[
                     {
                         "role": "system",
@@ -173,19 +263,35 @@ Please grade the problem and solution shown in the image.
                                 "type": "text",
                                 "text": user_prompt,
                             },
-                            {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": f"data:image/{image_format};base64,{base64_image}",
-                                    "detail": "high"
-                                }
-                            }
+                            image_content,
                         ]
                     }
                 ],
                 max_completion_tokens=15000,
-                #temperature=0.1
+                temperature=0,
             )
+
+            # response = client.chat.completions.create(
+            #     model="gpt-5.2",
+            #     messages=[
+            #         {
+            #             "role": "system",
+            #             "content": sys_prompt
+            #         },
+            #         {
+            #             "role": "user",
+            #             "content": [
+            #                 {
+            #                     "type": "text",
+            #                     "text": user_prompt,
+            #                 },
+            #                 image_content,
+            #             ]
+            #         }
+            #     ],
+            #     max_completion_tokens=15000,
+            #     temperature=0,
+            # )
             
             content = response.choices[0].message.content
             return self._parse_response(content)
@@ -200,66 +306,66 @@ Please grade the problem and solution shown in the image.
                 print(f"API response body: {getattr(e.response, 'text', 'N/A')}")
             raise Exception(f"OpenAI API error: {str(e)}")
     
-    async def _analyze_with_anthropic(self, image_data: bytes) -> Dict[str, Any]:
-        """Analyze image using Anthropic Claude"""
-        try:
-            import anthropic
+    # async def _analyze_with_anthropic(self, image_data: bytes) -> Dict[str, Any]:
+    #     """Analyze image using Anthropic Claude"""
+    #     try:
+    #         import anthropic
             
-            client = anthropic.Anthropic(api_key=self.api_key)
-            base64_image = base64.b64encode(image_data).decode('utf-8')
+    #         client = anthropic.Anthropic(api_key=self.api_key)
+    #         base64_image = base64.b64encode(image_data).decode('utf-8')
             
-            response = client.messages.create(
-                model="claude-3-5-sonnet-20241022",  # Updated to latest model
-                max_tokens=1000,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "image",
-                                "source": {
-                                    "type": "base64",
-                                    "media_type": "image/png",
-                                    "data": base64_image
-                                }
-                            },
-                            {
-                                "type": "text",
-                                "text": "Please analyze this whiteboard drawing and provide: 1) Text recognition of any written content, 2) Description of visual elements (diagrams, shapes, arrows), 3) Content analysis and interpretation, 4) Suggestions for improvement or organization. Format your response as JSON with keys: text_recognition, visual_elements, content_analysis, suggestions (array), confidence (0-1)."
-                            }
-                        ]
-                    }
-                ]
-            )
+    #         response = client.messages.create(
+    #             model="claude-3-5-sonnet-20241022",  # Updated to latest model
+    #             max_tokens=1000,
+    #             messages=[
+    #                 {
+    #                     "role": "user",
+    #                     "content": [
+    #                         {
+    #                             "type": "image",
+    #                             "source": {
+    #                                 "type": "base64",
+    #                                 "media_type": "image/png",
+    #                                 "data": base64_image
+    #                             }
+    #                         },
+    #                         {
+    #                             "type": "text",
+    #                             "text": "Please analyze this whiteboard drawing and provide: 1) Text recognition of any written content, 2) Description of visual elements (diagrams, shapes, arrows), 3) Content analysis and interpretation, 4) Suggestions for improvement or organization. Format your response as JSON with keys: text_recognition, visual_elements, content_analysis, suggestions (array), confidence (0-1)."
+    #                         }
+    #                     ]
+    #                 }
+    #             ]
+    #         )
             
-            content = response.content[0].text
-            return self._parse_response(content)
+    #         content = response.content[0].text
+    #         return self._parse_response(content)
             
-        except ImportError:
-            raise Exception("Anthropic library not installed. Run: pip install anthropic>=0.18.0")
-        except Exception as e:
-            raise Exception(f"Anthropic API error: {str(e)}")
+    #     except ImportError:
+    #         raise Exception("Anthropic library not installed. Run: pip install anthropic>=0.18.0")
+    #     except Exception as e:
+    #         raise Exception(f"Anthropic API error: {str(e)}")
     
-    async def _analyze_with_google(self, image_data: bytes) -> Dict[str, Any]:
-        """Analyze image using Google Gemini"""
-        import google.generativeai as genai
+    # async def _analyze_with_google(self, image_data: bytes) -> Dict[str, Any]:
+    #     """Analyze image using Google Gemini"""
+    #     import google.generativeai as genai
         
-        genai.configure(api_key=self.api_key)
-        model = genai.GenerativeModel('gemini-pro-vision')
+    #     genai.configure(api_key=self.api_key)
+    #     model = genai.GenerativeModel('gemini-pro-vision')
         
-        # Convert bytes to PIL Image
-        image = Image.open(io.BytesIO(image_data))
+    #     # Convert bytes to PIL Image
+    #     image = Image.open(io.BytesIO(image_data))
         
-        prompt = """Please analyze this whiteboard drawing and provide: 
-        1) Text recognition of any written content
-        2) Description of visual elements (diagrams, shapes, arrows)
-        3) Content analysis and interpretation
-        4) Suggestions for improvement or organization
+    #     prompt = """Please analyze this whiteboard drawing and provide: 
+    #     1) Text recognition of any written content
+    #     2) Description of visual elements (diagrams, shapes, arrows)
+    #     3) Content analysis and interpretation
+    #     4) Suggestions for improvement or organization
         
-        Format your response as JSON with keys: text_recognition, visual_elements, content_analysis, suggestions (array), confidence (0-1)."""
+    #     Format your response as JSON with keys: text_recognition, visual_elements, content_analysis, suggestions (array), confidence (0-1)."""
         
-        response = model.generate_content([prompt, image])
-        return self._parse_response(response.text)
+    #     response = model.generate_content([prompt, image])
+    #     return self._parse_response(response.text)
     
     def _detect_image_format(self, image_data: bytes) -> str:
         """Detect image format from image data"""
@@ -284,12 +390,12 @@ Please grade the problem and solution shown in the image.
         except json.JSONDecodeError:
             # If not valid JSON, create structured response from text
             return {
-                "text_recognition": self._extract_section(content, 'text'),
-                "visual_elements": self._extract_section(content, 'visual'),
-                "content_analysis": self._extract_section(content, 'analysis'),
-                "suggestions": self._extract_suggestions(content),
-                "confidence": 0.8,
-                "raw_response": content
+                # "text_recognition": self._extract_section(content, 'text'),
+                # "visual_elements": self._extract_section(content, 'visual'),
+                # "content_analysis": self._extract_section(content, 'analysis'),
+                # "suggestions": self._extract_suggestions(content),
+                # "confidence": 0.8,
+                # "raw_response": content
             }
     
     def _extract_section(self, content: str, section_type: str) -> str:
