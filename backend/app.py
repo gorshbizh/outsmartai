@@ -67,15 +67,7 @@ class LLMService:
                 timeout=30.0
             )
 
-            image_content = {
-                "type": "image_url",
-                "image_url": {
-                    "url": f"data:image/{image_format};base64,{base64_image}",
-                    "detail": "high",
-                },
-            }
-
-            summary_sys_prompt = """
+            sys_prompt = '''
 You are a experienced 1 to 12 grade math teacher that are good at reading images created from hand written notes and analyzing diagrams to understand the content of the notes that can properly evaluate if the problem was done correctly.
 
 **INPUT DEFINITION**
@@ -89,6 +81,13 @@ These two sections needs to be carefully evaluated on if the math problem that i
     1a. Perform another detailed recognition of ALL other non-text based content on the image such as any additional graphs, shapes, or charts
   2. Try to understand the content based on the mathmetical context of this problem.  Understand what the problem is about and the available solutions to the problem.
     2a. If there is any additional elements like a graph, shape, or chart they are IMPORTANT to the evalution of the solution
+  3. Pay attention to the solution to reasoning through the steps in it, following below three citeria to give a points based grading out of 100:
+    3a. When evaluating solution, allow for some steps in the reasoning to be skipped if the transition is valid and common at this level or if the reasoning can be easily inferred from the existing context and graphics. When drowings, graphs, or charts are present, obvious observations do not need to be explicitly stated in the steps. 
+    3b. From a global perspective, all the steps as a whole must serve the purpose of solving the problem. Solution must be relavent with regard to the problem. The reasoning process must align with the purpose of resolving the problem. If this criteria is not followed then take away all 100 points.
+    3c. From an interstep perspective, the decution and deriviateion from one step to the next must be logical, reasonable, coherent, correct, accurate and relavent to the problem. When drowings, graphs, or charts are present, interstep logics must be assessed together with the drawings, graphs, or charts, to make sure the reasoning is consistent, relavent, and correct. For every logical flaw and violation of this critieria take away 20 points.
+    3d. From an Intrastep perspective, make sure local computation, logic, or syntax are correct and accurate within each step. When drowings, graphs, or charts are present, make sure evaluate the individual step referencing the drowings, graphs, or charts and do not limit the scope to the step itself alone. For each local mistake take away 10 points.
+  4. Everytime points are taken away, present an explanation for each flaw that was detected and provide a confidence score for each deduction.  Format as JSON with: a list of 1. the points taken away, 2. the corresponding reason, and 3. the confidence score of such deduction.
+  5. Reevaluate all point deductions and remove those containing hallucination or confidence score lower than 0.5.
 
 **OUTPUT DEFINITION**
 FORMAT
@@ -97,107 +96,21 @@ You must respond with valid JSON in this exact format:
 ```json
 {
     "text_description": string,
-    "drawing_description": string
+    "drawing_description": string,
     "steps":
       [
         "step1",
         "step2",
         "step3"
-      ]
-}
-
-Field Definitions:
--text_description: All text seen on the image including the problem and solution
--drawing_description: A description of all non-text elements like graphs, charts, and shapes from the problem and solution
--steps: A list of all total steps the student took during the solution DO NOT ADD ANY ADDITIONAL DESCRIPTIONS, just the exact steps that the student took.
-
-EXAMPLE OUTPUT
-Example 1
-```json
-{
-    "text_description": "Problem: solve this math equation Solution Below: 1 + 1 = 2, 2 + 2 = 4, 3x + 5 = 13, 2x = 18, x = 6, 6 * 9 = 45",
-    "drawing_description": "no drawings such as charts, graphs, or shapes were detected"
-    "steps":
-      [
-        "1 + 1 = 2",
-        "2 + 2 = 4",
-        "3x + 5 = 13",
-        "2x = 18",
-        "x = 6",
-        "6 * 9 = 45"
-      ]
-}
-
-Example 2
-{
-    "text_description": "Problem: Prove that angle C is a right angle, Given: Line AB is the diameter of the circle and point C is a point on the circle in between point A and point B, Solution Below: OA=OC=OB Triangle AOC and Triangle BOC are both isosceles triangles",
-    "drawing_description": "There is a circle with a diameter from point A to Point B and a triangle drawn between the point A, point B, and a point C located somewhere inbetween point A and B"
-    "steps":
-      [
-        "OA = OC = OB",
-        "Triangle AOC and Triangle BOC are both isosceles triangles so",
-        "angle OAC = angle OCA and angle OBC = angle OCB"
-      ]
-}
-"""
-            summary_user_prompt = "Summarize everything you can see in the image including text and ALL visual graphics such as charts, graphs, and shapes for downstream grading."
-
-            summary_content = ""
-            try:
-                summary_response = client.chat.completions.create(
-                    model="gpt-5.2",
-                    messages=[
-                        {"role": "system", "content": summary_sys_prompt},
-                        {
-                            "role": "user",
-                            "content": [
-                                {"type": "text", "text": summary_user_prompt},
-                                image_content,
-                            ],
-                        },
-                    ],
-                    max_completion_tokens=15000,
-                    temperature=0,
-                )
-                summary_content = (summary_response.choices[0].message.content or "").strip()
-
-                if os.getenv("PRINT_LLM_FIRST_PASS") == "1" or os.getenv("FLASK_DEBUG", "False").lower() == "true":
-                    print("\n=== LLM First Pass Output (summary) ===", flush=True)
-                    print(summary_content, flush=True)
-                    print("=== End LLM First Pass Output ===\n", flush=True)
-            except Exception as e:
-                print(f"OpenAI summary pass error: {str(e)}")
-
-            sys_prompt = '''
-You are a experienced 1 to 12 grade math grader that are good at reading images created from hand written notes and analyzing diagrams to grade the content of the solution that can properly evaluate how many points the solution deserves.
-
-**INPUT DEFINITION**
-The image will contain a black inked portion describing the problem which could contain both text defining what the problem is as well as given parameters concerning the problem along with an accompanying image like a graph, shape, or chart; 
-and the second portion is a grey inked solution for this problem that could contain a text response as well as grey colored drawings upon the problem's graphs, shapes, and charts.
-
-**GRADING PROCEDURE**
-These two sections needs to be carefully evaluated on if the math problem that is written in black ink was done correctly, following below steps:
-  1. Pay attention to the solution to reasoning through the steps in it, following below three citeria to give a points based grading out of 100:
-    1a. evaluate the steps as whole that serve the purpose of solving the problem. If this criteria is not followed then take away all 100 points.
-    1b. The logical relationship between the entire problem must stay consistent along with the logical relationship from step to step is reasonable, coherent, and relavent to the problem including any diagrams or graphs. When there are any graphs or charts the logical relationship between the and the graph/chart must be reassessed to be coherent, reasonable, and relevant as well.  The deduction or derivation from one step to the next is correct and accurate. For every logical flaw and violation of this critieria take away 20 points.
-    1c. there is no local computation, logic, or syntax error within each step. For each local mistake take away 10 points.
-    1d. Allow for some steps in the reasoning to be skipped if the transition is valid and common at this level or if the reasoning can be easily inferred from the existing context and graphics. But do not allow for the reasoning to be skipped if it hides a likely mistake or lack the sufficient surrounding context to justify such a leap of logic.
-  2. Everytime points are taken away, present an explanation for each flaw that was detected and provide a confidence score for each deduction.  Format as JSON with: a list of 1. the points taken away, 2. the corresponding reason, and 3. the confidence score of such deduction.
-  3. Reevaluate all point deductions and remove those containing hallucination or confidence score lower than 0.5.
-
-**OUTPUT DEFINITION**
-FORMAT
-CRITICAL: generate output in STRICT JSON format without any comments, explanations, or additional 
-You must respond with valid JSON in this exact format:
-```json
-{
+      ],
     "total_points": int,
     "deductions":
       [
         {
           "deducted_points": int,
           "deduction_reason": string,
-          "deduction_confidence_score" float
+          "deduction_confidence_score": float,
+          "deduction_step": string
         }
       ],
     "confidence_score": float,
@@ -206,11 +119,15 @@ You must respond with valid JSON in this exact format:
 ```
 
 Field Definitions:
+-text_description: All text seen on the image including the problem and solution
+-drawing_description: A description of all non-text elements like graphs, charts, and shapes from the problem and solution
+-steps: A list of all total steps the student took during the solution DO NOT ADD ANY ADDITIONAL DESCRIPTIONS, just the exact steps that the student took.
 -total_points: the total amount of points given for the solution
 -deductions: A list of all total deductions with the subtracted points value along with their corresponding explanations for why the deduction occurred
 -deductions_points: Either 100, 20, or 10 based on the violations
 -deduction_reason: The reason for the violation that caused the points deduction
 -deduction_confidence_score: Float (0.0-1.0) indicating confidence in such deduction, 1.0 meaning complete confidence in this deduction
+-deduction_step: the exact step where the deduction would be made in the solution where the error occurs.
 -confidence_score: Float (0.0-1.0) indicating confidence in the total grading process, 1.0 meaning complete confidence in the final grade
 -summary: summarize the evalution of the solution by the student and include the strengths and weaknesses of the student, demonstrated in the solution 
 
@@ -218,17 +135,30 @@ EXAMPLE OUTPUT
 Example 1
 ```json
 {
+    "text_description": "Problem: solve this math equation Solution Below: 1 + 1 = 2, 2 + 2 = 4, 3x + 5 = 13, 2x = 18, x = 6, 6 * 9 = 45",
+    "drawing_description": "no drawings such as charts, graphs, or shapes were detected",
+    "steps":
+      [
+        "1 + 1 = 2",
+        "2 + 2 = 4",
+        "3x + 5 = 13",
+        "2x = 18",
+        "x = 6",
+        "6 * 9 = 45"
+      ],
     "total_points": 70,
     "deductions":[
         {
           "deducted_points": 20,
           "deduction_reason": "the logical relationship between step 3 and step 4 were illogical and did not properly connect the line of thought from step 3-4",
           "deduction_confidence_score": 0.9
+          "deduction_step": "step 4"
         }
         {
           "deducted_points" 10,
           "deduction_reason": "there was a local computational error in step 6, 6 * 9 = 54, not 45 ",
           "deduction_confidence_score": 0.88
+          "deduction_step": "step 6"
         }
     ],
     "confidence_score" 0.95
@@ -237,20 +167,26 @@ Example 1
 
 Example 2
 {
+    "text_description": "Problem: Prove that angle C is a right angle, Given: Line AB is the diameter of the circle and point C is a point on the circle in between point A and point B, Solution Below: OA=OC=OB Triangle AOC and Triangle BOC are both isosceles triangles",
+    "drawing_description": "There is a circle with a diameter from point A to Point B and a triangle drawn between the point A, point B, and a point C located somewhere inbetween point A and B",
+     "steps":
+      [
+        "OA = OC = OB",
+        "Triangle AOC and Triangle BOC are both isosceles triangles so",
+        "angle OAC = angle OCA and angle OBC = angle OCB"
+      ],
     "total_points": 100,
     "deductions":[],
     "confidence_score" 0.8
     "summary": "the student had completely understood all mathematical concepts present and solved accordingly."
 } 
 '''
-            user_prompt = f"""
-{summary_content}
-            
+            user_prompt = """
 Please grade the problem and solution shown in the image.
 """
-          
+            
             response = client.chat.completions.create(
-                model="gpt-5.2",
+                model="gpt-5.2",  
                 messages=[
                     {
                         "role": "system",
@@ -263,35 +199,19 @@ Please grade the problem and solution shown in the image.
                                 "type": "text",
                                 "text": user_prompt,
                             },
-                            image_content,
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/{image_format};base64,{base64_image}",
+                                    "detail": "high"
+                                }
+                            }
                         ]
                     }
                 ],
                 max_completion_tokens=15000,
-                temperature=0,
+                temperature=0
             )
-
-            # response = client.chat.completions.create(
-            #     model="gpt-5.2",
-            #     messages=[
-            #         {
-            #             "role": "system",
-            #             "content": sys_prompt
-            #         },
-            #         {
-            #             "role": "user",
-            #             "content": [
-            #                 {
-            #                     "type": "text",
-            #                     "text": user_prompt,
-            #                 },
-            #                 image_content,
-            #             ]
-            #         }
-            #     ],
-            #     max_completion_tokens=15000,
-            #     temperature=0,
-            # )
             
             content = response.choices[0].message.content
             return self._parse_response(content)
