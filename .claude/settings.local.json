@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c \"from formalgeo import parse; print([x for x in dir(parse) if not x.startswith(''''_'''')])\")",
+      "Bash(python3 -c \"from formalgeo.parse import parse_problem_cdl; import inspect; print(inspect.signature(parse_problem_cdl))\")",
+      "Bash(python3 run_e2e.py --indices 3 2)",
+      "Bash(1)",
+      "Bash(pip show formalgeo)",
+      "Bash(python3 -c \"from formalgeo import parse; print([x for x in dir(parse) if not x.startswith(''_'')])\")",
+      "Bash(python3 -c \"from formalgeo.problem import Problem; print([x for x in dir(Problem) if not x.startswith(''_'')])\")",
+      "Bash(python3 -c \"\nfrom formalgeo.problem import Problem\nimport inspect\n\n# Check the check_goal method signature\nprint(''check_goal signature:'', inspect.signature(Problem.check_goal))\n\n# Import solver\nfrom formalgeo.solver import Interactor\nprint(''Interactor available'')\n\")",
+      "Bash(python3 run_e2e.py --indices 3,4)",
+      "Bash(find tests/output -name \"*.json\" -exec grep -l \"AngleSum180\" {} ;)",
+      "Bash(python3 run_e2e.py --indices 3)",
+      "Bash(git checkout:*)",
+      "Bash(git commit:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

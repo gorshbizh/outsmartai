@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//Users/yud/Documents/**)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
