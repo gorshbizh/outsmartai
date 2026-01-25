@@ -26,7 +26,9 @@ def _get_test_image_bytes() -> bytes:
     
     # env_path = r"C:\Users\georg\repo\outsmartai\backend\tests\data\CorrectSolution1.png"
     # env_path = r"C:\Users\georg\repo\outsmartai\backend\tests\data\WrongSolution1.png"
-    env_path = r"C:\Users\georg\repo\outsmartai\backend\tests\data\CorrectSolution2.png"
+    # env_path = r"C:\Users\georg\repo\outsmartai\backend\tests\data\CorrectSolution2.png"
+    # env_path = r"C:\Users\georg\repo\outsmartai\backend\tests\data\CorrectSolution3.png"
+    env_path = r"C:\Users\georg\repo\outsmartai\backend\tests\data\CorrectSolution4.png"
     if env_path:
         fixture_path = Path(env_path).expanduser()
         if fixture_path.exists():
@@ -76,6 +78,28 @@ class LLMServiceApiTests(unittest.TestCase):
         self.assertEqual(response.get_json(), fake_result)
         analyze_mock.assert_awaited_once()
         self.assertEqual(analyze_mock.call_args.args[0], image_bytes)
+
+    def test_parse_response_accepts_fenced_json_and_adds_legacy_fields(self) -> None:
+        service = app_module.LLMService()
+        llm_payload = {
+            "text_description": "Problem text here",
+            "drawing_description": "A triangle with labels",
+            "total_points": 90,
+            "deductions": [{"deduction_reason": "Arithmetic mistake"}],
+            "confidence_score": 0.7,
+            "summary": "Mostly correct with a small error.",
+        }
+        fenced = "```json\n" + json.dumps(llm_payload) + "\n```"
+
+        parsed = service._parse_response(fenced)
+
+        self.assertEqual(parsed.get("text_recognition"), llm_payload["text_description"])
+        self.assertEqual(parsed.get("visual_elements"), llm_payload["drawing_description"])
+        self.assertIn("Score: 90", parsed.get("content_analysis", ""))
+        self.assertEqual(parsed.get("suggestions"), ["Arithmetic mistake"])
+        self.assertAlmostEqual(parsed.get("confidence"), 0.7, places=5)
+        self.assertEqual(parsed.get("total_points"), 90)
+        self.assertIn("raw_response", parsed)
 
     @unittest.skipUnless(
         os.getenv("RUN_LLM_INTEGRATION") == "1",
