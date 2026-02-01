@@ -81,11 +81,12 @@ These two sections needs to be carefully evaluated on if the math problem that i
     1a. Perform another detailed recognition of ALL other non-text based content on the image such as any additional graphs, shapes, or charts
   2. Try to understand the content based on the mathmetical context of this problem.  Understand what the problem is about and the available solutions to the problem.
     2a. If there is any additional elements like a graph, shape, or chart they are IMPORTANT to the evalution of the solution
+    2b. Make declarations that can be observed from the image if not already apparent such as collinearity of segments 
   3. Pay attention to the solution to reasoning through the steps in it, following below three citeria to give a points based grading out of 100:
     3a. When evaluating solution, allow for some steps in the reasoning to be skipped if the transition is valid and common at this level or if the reasoning can be easily inferred from the existing context and graphics. When drowings, graphs, or charts are present, obvious observations do not need to be explicitly stated in the steps. 
     3b. From a global perspective, all the steps as a whole must serve the purpose of solving the problem. Solution must be relavent with regard to the problem. The reasoning process must align with the purpose of resolving the problem. If this criteria is not followed then take away all 100 points.
     3c. From an interstep perspective, the decution and deriviateion from one step to the next must be logical, reasonable, coherent, correct, accurate and relavent to the problem. When drowings, graphs, or charts are present, interstep logics must be assessed together with the drawings, graphs, or charts, to make sure the reasoning is consistent, relavent, and correct. For every logical flaw and violation of this critieria take away 20 points.
-    3d. From an Intrastep perspective, make sure local computation, logic, or syntax are correct and accurate within each step. When drowings, graphs, or charts are present, make sure evaluate the individual step referencing the drowings, graphs, or charts and do not limit the scope to the step itself alone. For each local mistake take away 10 points.
+    3d. From an intrastep perspective, make sure local computation, logic, or syntax are correct and accurate within each step. When drowings, graphs, or charts are present, make sure evaluate the individual step referencing the drowings, graphs, or charts and do not limit the scope to the step itself alone. For each local mistake take away 10 points.
   4. Everytime points are taken away, present an explanation for each flaw that was detected and provide a confidence score for each deduction.  Format as JSON with: a list of 1. the points taken away, 2. the corresponding reason, and 3. the confidence score of such deduction.
   5. Reevaluate all point deductions and remove those containing hallucination or confidence score lower than 0.5.
 
@@ -97,6 +98,7 @@ You must respond with valid JSON in this exact format:
 {
     "text_description": string,
     "drawing_description": string,
+    "declarations": string,
     "steps":
       [
         "step1",
@@ -121,6 +123,7 @@ You must respond with valid JSON in this exact format:
 Field Definitions:
 -text_description: All text seen on the image including the problem and solution
 -drawing_description: A description of all non-text elements like graphs, charts, and shapes from the problem and solution
+-declarations: A declaration of existing and observable facts apparent from existing graphics that relate to the problem
 -steps: A list of all total steps the student took during the solution DO NOT ADD ANY ADDITIONAL DESCRIPTIONS, just the exact steps that the student took.
 -total_points: the total amount of points given for the solution
 -deductions: A list of all total deductions with the subtracted points value along with their corresponding explanations for why the deduction occurred
@@ -137,6 +140,7 @@ Example 1
 {
     "text_description": "Problem: solve this math equation Solution Below: 1 + 1 = 2, 2 + 2 = 4, 3x + 5 = 13, 2x = 18, x = 6, 6 * 9 = 45",
     "drawing_description": "no drawings such as charts, graphs, or shapes were detected",
+    "declarations": "no declarations were needed since no charts, graphs, or shapes were detected",
     "steps":
       [
         "1 + 1 = 2",
@@ -169,6 +173,7 @@ Example 2
 {
     "text_description": "Problem: Prove that angle C is a right angle, Given: Line AB is the diameter of the circle and point C is a point on the circle in between point A and point B, Solution Below: OA=OC=OB Triangle AOC and Triangle BOC are both isosceles triangles",
     "drawing_description": "There is a circle with a diameter from point A to Point B and a triangle drawn between the point A, point B, and a point C located somewhere inbetween point A and B",
+    "declarations": "A B C are all points on the circle, Line AO and Line OB are collinear with line AB"
      "steps":
       [
         "OA = OC = OB",
@@ -303,20 +308,97 @@ Please grade the problem and solution shown in the image.
     def _parse_response(self, content: str) -> Dict[str, Any]:
         """Parse LLM response into structured format"""
         import json
-        
-        try:
-            # Try to parse as JSON first
-            return json.loads(content)
-        except json.JSONDecodeError:
-            # If not valid JSON, create structured response from text
-            return {
-                # "text_recognition": self._extract_section(content, 'text'),
-                # "visual_elements": self._extract_section(content, 'visual'),
-                # "content_analysis": self._extract_section(content, 'analysis'),
-                # "suggestions": self._extract_suggestions(content),
-                # "confidence": 0.8,
-                # "raw_response": content
-            }
+        import re
+
+        raw_content = content or ""
+        cleaned = raw_content.strip()
+
+        def _coerce_confidence(value: Any) -> Optional[float]:
+            if isinstance(value, (int, float)):
+                confidence = float(value)
+                if confidence > 1.0:
+                    confidence = confidence / 100.0
+                return max(0.0, min(1.0, confidence))
+            return None
+
+        def _augment_with_legacy_fields(parsed: Dict[str, Any]) -> Dict[str, Any]:
+            result: Dict[str, Any] = dict(parsed)
+            result.setdefault("raw_response", raw_content)
+
+            if "text_recognition" not in result:
+                result["text_recognition"] = (
+                    result.get("text_description")
+                    or result.get("recognized_text")
+                    or self._extract_section(raw_content, "text")
+                )
+
+            if "visual_elements" not in result:
+                result["visual_elements"] = (
+                    result.get("drawing_description")
+                    or result.get("visual_description")
+                    or self._extract_section(raw_content, "visual")
+                )
+
+            if "content_analysis" not in result:
+                summary = result.get("summary")
+                total_points = result.get("total_points")
+                if summary and total_points is not None:
+                    result["content_analysis"] = f"Score: {total_points}. {summary}"
+                else:
+                    result["content_analysis"] = summary or self._extract_section(raw_content, "analysis")
+
+            if "suggestions" not in result or not isinstance(result.get("suggestions"), list):
+                suggestions: List[str] = []
+                deductions = result.get("deductions")
+                if isinstance(deductions, list):
+                    for item in deductions:
+                        if isinstance(item, dict):
+                            reason = item.get("deduction_reason") or item.get("reason")
+                            if isinstance(reason, str) and reason.strip():
+                                suggestions.append(reason.strip())
+                if not suggestions:
+                    suggestions = self._extract_suggestions(raw_content)
+                result["suggestions"] = suggestions
+
+            if "confidence" not in result:
+                confidence = _coerce_confidence(result.get("confidence_score"))
+                if confidence is None:
+                    confidence = _coerce_confidence(result.get("confidence"))
+                result["confidence"] = confidence if confidence is not None else 0.8
+
+            return result
+
+        def _try_parse_json(text: str) -> Optional[Dict[str, Any]]:
+            try:
+                parsed = json.loads(text)
+            except json.JSONDecodeError:
+                return None
+            return parsed if isinstance(parsed, dict) else None
+
+        parsed_dict = _try_parse_json(cleaned)
+
+        if parsed_dict is None and cleaned:
+            fenced = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", cleaned, re.DOTALL | re.IGNORECASE)
+            if fenced:
+                parsed_dict = _try_parse_json(fenced.group(1).strip())
+
+        if parsed_dict is None and cleaned:
+            start = cleaned.find("{")
+            end = cleaned.rfind("}")
+            if start != -1 and end != -1 and end > start:
+                parsed_dict = _try_parse_json(cleaned[start : end + 1])
+
+        if parsed_dict is not None:
+            return _augment_with_legacy_fields(parsed_dict)
+
+        return {
+            "text_recognition": self._extract_section(raw_content, "text"),
+            "visual_elements": self._extract_section(raw_content, "visual"),
+            "content_analysis": self._extract_section(raw_content, "analysis"),
+            "suggestions": self._extract_suggestions(raw_content),
+            "confidence": 0.8,
+            "raw_response": raw_content,
+        }
     
     def _extract_section(self, content: str, section_type: str) -> str:
         """Extract specific section from text response"""
