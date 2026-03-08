@@ -1,0 +1,601 @@
+{
+  "image": "/Users/yud/repo/outsmartai/backend/tests/data/w_geo_1.png",
+  "score": 100,
+  "max_score": 100,
+  "formalgeo_used": true,
+  "analysis": {
+    "text_description": "Problem:\nFind the measure of angle DOB\nGiven:\nAngle DCE is 64 degrees\nThe center of the circle is O\nPoint A, B, D, C are all points on the circle\n\nSolution Below:\nBCE is a straight line,\nsince DCE is 64° BCD is 116°\nBODC is a quadrilateral\nand the opposite angles on a quadrilateral are the same angle BCD is equal to angle BOD\n\n(handwritten)\n∠BCD = 116°\n∠BOD = ∠BCD\n∠BOD = 116°",
+    "drawing_description": "A circle with center labeled O. Points A (top), B (bottom-left), C (bottom-right), D (right) lie on the circle. Chords/segments drawn: AB (a chord from A to B), AD (a chord from A to D), BD (a chord from B to D), and a segment from O to D (radius) and from O to B (radius) forming central angle ∠DOB at O. A straight line extends through B-C-E to the right, with E outside the circle. At point C, the exterior angle between CD and CE is marked 64°. The interior angle at C between CB and CD is marked 116°. The central angle at O between OB and OD is the target angle.",
+    "declarations": "B, C, E are collinear so ∠DCE and ∠BCD form a linear pair (sum to 180°). OB = OD (radii). Points B, O, D, C form a quadrilateral, but it is not necessarily cyclic and opposite angles in a general quadrilateral are not necessarily equal.",
+    "steps": [
+      "BCE is a straight line, since DCE is 64° BCD is 116°",
+      "BODC is a quadrilateral and the opposite angles on a quadrilateral are the same angle BCD is equal to angle BOD",
+      "∠BOD = 116°"
+    ],
+    "total_points": 70,
+    "deductions": [
+      {
+        "deducted_points": 20,
+        "deduction_reason": "Incorrect theorem/logic: In a general quadrilateral, opposite angles are not necessarily equal. The step claiming ∠BCD = ∠BOD because they are opposite angles of quadrilateral BODC is unjustified.",
+        "deduction_confidence_score": 0.95,
+        "deduction_step": "BODC is a quadrilateral and the opposite angles on a quadrilateral are the same angle BCD is equal to angle BOD"
+      },
+      {
+        "deducted_points": 10,
+        "deduction_reason": "Final answer is not supported by valid reasoning. Although ∠BOD happens to equal 116° (since central angle subtending arc BD is twice inscribed angle BAD, and ∠BAD = 58° from the given), the student's provided justification does not establish this.",
+        "deduction_confidence_score": 0.75,
+        "deduction_step": "∠BOD = 116°"
+      }
+    ],
+    "confidence_score": 0.86,
+    "summary": "The student correctly used the straight-line (linear pair) idea to convert the exterior angle ∠DCE = 64° into the interior angle ∠BCD = 116°. However, they then used an incorrect property about quadrilaterals (opposite angles being equal), so the conclusion ∠BOD = 116° is not properly justified from their work. The correct approach would relate the central angle ∠BOD to an inscribed angle subtending the same arc (or use cyclic quadrilateral/inscribed-angle relationships), not a general quadrilateral property.",
+    "raw_response": "{\n  \"text_description\": \"Problem:\\nFind the measure of angle DOB\\nGiven:\\nAngle DCE is 64 degrees\\nThe center of the circle is O\\nPoint A, B, D, C are all points on the circle\\n\\nSolution Below:\\nBCE is a straight line,\\nsince DCE is 64° BCD is 116°\\nBODC is a quadrilateral\\nand the opposite angles on a quadrilateral are the same angle BCD is equal to angle BOD\\n\\n(handwritten)\\n∠BCD = 116°\\n∠BOD = ∠BCD\\n∠BOD = 116°\",\n  \"drawing_description\": \"A circle with center labeled O. Points A (top), B (bottom-left), C (bottom-right), D (right) lie on the circle. Chords/segments drawn: AB (a chord from A to B), AD (a chord from A to D), BD (a chord from B to D), and a segment from O to D (radius) and from O to B (radius) forming central angle ∠DOB at O. A straight line extends through B-C-E to the right, with E outside the circle. At point C, the exterior angle between CD and CE is marked 64°. The interior angle at C between CB and CD is marked 116°. The central angle at O between OB and OD is the target angle.\",\n  \"declarations\": \"B, C, E are collinear so ∠DCE and ∠BCD form a linear pair (sum to 180°). OB = OD (radii). Points B, O, D, C form a quadrilateral, but it is not necessarily cyclic and opposite angles in a general quadrilateral are not necessarily equal.\",\n  \"steps\": [\n    \"BCE is a straight line, since DCE is 64° BCD is 116°\",\n    \"BODC is a quadrilateral and the opposite angles on a quadrilateral are the same angle BCD is equal to angle BOD\",\n    \"∠BOD = 116°\"\n  ],\n  \"total_points\": 70,\n  \"deductions\": [\n    {\n      \"deducted_points\": 20,\n      \"deduction_reason\": \"Incorrect theorem/logic: In a general quadrilateral, opposite angles are not necessarily equal. The step claiming ∠BCD = ∠BOD because they are opposite angles of quadrilateral BODC is unjustified.\",\n      \"deduction_confidence_score\": 0.95,\n      \"deduction_step\": \"BODC is a quadrilateral and the opposite angles on a quadrilateral are the same angle BCD is equal to angle BOD\"\n    },\n    {\n      \"deducted_points\": 10,\n      \"deduction_reason\": \"Final answer is not supported by valid reasoning. Although ∠BOD happens to equal 116° (since central angle subtending arc BD is twice inscribed angle BAD, and ∠BAD = 58° from the given), the student's provided justification does not establish this.\",\n      \"deduction_confidence_score\": 0.75,\n      \"deduction_step\": \"∠BOD = 116°\"\n    }\n  ],\n  \"confidence_score\": 0.86,\n  \"summary\": \"The student correctly used the straight-line (linear pair) idea to convert the exterior angle ∠DCE = 64° into the interior angle ∠BCD = 116°. However, they then used an incorrect property about quadrilaterals (opposite angles being equal), so the conclusion ∠BOD = 116° is not properly justified from their work. The correct approach would relate the central angle ∠BOD to an inscribed angle subtending the same arc (or use cyclic quadrilateral/inscribed-angle relationships), not a general quadrilateral property.\"\n}",
+    "text_recognition": "Problem:\nFind the measure of angle DOB\nGiven:\nAngle DCE is 64 degrees\nThe center of the circle is O\nPoint A, B, D, C are all points on the circle\n\nSolution Below:\nBCE is a straight line,\nsince DCE is 64° BCD is 116°\nBODC is a quadrilateral\nand the opposite angles on a quadrilateral are the same angle BCD is equal to angle BOD\n\n(handwritten)\n∠BCD = 116°\n∠BOD = ∠BCD\n∠BOD = 116°",
+    "visual_elements": "A circle with center labeled O. Points A (top), B (bottom-left), C (bottom-right), D (right) lie on the circle. Chords/segments drawn: AB (a chord from A to B), AD (a chord from A to D), BD (a chord from B to D), and a segment from O to D (radius) and from O to B (radius) forming central angle ∠DOB at O. A straight line extends through B-C-E to the right, with E outside the circle. At point C, the exterior angle between CD and CE is marked 64°. The interior angle at C between CB and CD is marked 116°. The central angle at O between OB and OD is the target angle.",
+    "content_analysis": "Score: 70. The student correctly used the straight-line (linear pair) idea to convert the exterior angle ∠DCE = 64° into the interior angle ∠BCD = 116°. However, they then used an incorrect property about quadrilaterals (opposite angles being equal), so the conclusion ∠BOD = 116° is not properly justified from their work. The correct approach would relate the central angle ∠BOD to an inscribed angle subtending the same arc (or use cyclic quadrilateral/inscribed-angle relationships), not a general quadrilateral property.",
+    "suggestions": [
+      "Incorrect theorem/logic: In a general quadrilateral, opposite angles are not necessarily equal. The step claiming ∠BCD = ∠BOD because they are opposite angles of quadrilateral BODC is unjustified.",
+      "Final answer is not supported by valid reasoning. Although ∠BOD happens to equal 116° (since central angle subtending arc BD is twice inscribed angle BAD, and ∠BAD = 58° from the given), the student's provided justification does not establish this."
+    ],
+    "confidence": 0.86
+  },
+  "grading": {
+    "problem_id": "diameter_right_angle",
+    "steps": [
+      {
+        "step_id": 1,
+        "raw_text": "BCE is a straight line,",
+        "normalized_text": "BCE is a straight line.",
+        "tokens": [
+          "BCE",
+          "is",
+          "a",
+          "straight",
+          "line"
+        ],
+        "span_refs": [
+          {
+            "source": "student_text",
+            "start": 196,
+            "end": 218
+          }
+        ]
+      },
+      {
+        "step_id": 2,
+        "raw_text": "since DCE is 64° BCD is 116°",
+        "normalized_text": "Since ∠DCE = 64°, ∠BCD = 116°.",
+        "tokens": [
+          "since",
+          "∠DCE",
+          "is",
+          "64°",
+          "∠BCD",
+          "is",
+          "116°"
+        ],
+        "span_refs": [
+          {
+            "source": "student_text",
+            "start": 219,
+            "end": 249
+          }
+        ]
+      },
+      {
+        "step_id": 3,
+        "raw_text": "BODC is a quadrilateral",
+        "normalized_text": "BODC is a quadrilateral.",
+        "tokens": [
+          "BODC",
+          "is",
+          "a",
+          "quadrilateral"
+        ],
+        "span_refs": [
+          {
+            "source": "student_text",
+            "start": 250,
+            "end": 271
+          }
+        ]
+      },
+      {
+        "step_id": 4,
+        "raw_text": "and the opposite angles on a quadrilateral are the same angle BCD is equal to angle BOD",
+        "normalized_text": "Opposite angles in quadrilateral BODC are the same; ∠BCD = ∠BOD.",
+        "tokens": [
+          "and",
+          "the",
+          "opposite",
+          "angles",
+          "on",
+          "a",
+          "quadrilateral",
+          "are",
+          "the",
+          "same",
+          "angle",
+          "∠BCD",
+          "is",
+          "equal",
+          "to",
+          "angle",
+          "∠BOD"
+        ],
+        "span_refs": [
+          {
+            "source": "student_text",
+            "start": 272,
+            "end": 360
+          }
+        ]
+      },
+      {
+        "step_id": 5,
+        "raw_text": "∠BCD = 116°",
+        "normalized_text": "∠BCD = 116°.",
+        "tokens": [
+          "∠BCD",
+          "=",
+          "116°"
+        ],
+        "span_refs": [
+          {
+            "source": "student_text",
+            "start": 376,
+            "end": 388
+          }
+        ]
+      },
+      {
+        "step_id": 6,
+        "raw_text": "∠BOD = ∠BCD",
+        "normalized_text": "∠BOD = ∠BCD.",
+        "tokens": [
+          "∠BOD",
+          "=",
+          "∠BCD"
+        ],
+        "span_refs": [
+          {
+            "source": "student_text",
+            "start": 389,
+            "end": 401
+          }
+        ]
+      },
+      {
+        "step_id": 7,
+        "raw_text": "∠BOD = 116°",
+        "normalized_text": "∠BOD = 116°.",
+        "tokens": [
+          "∠BOD",
+          "=",
+          "116°"
+        ],
+        "span_refs": [
+          {
+            "source": "student_text",
+            "start": 402,
+            "end": 414
+          }
+        ]
+      }
+    ],
+    "claims": [
+      {
+        "claim_id": "S1C1",
+        "type": "COLLINEAR",
+        "args": [
+          "B",
+          "C",
+          "E"
+        ],
+        "depends_on": [],
+        "evidence": {
+          "from_step": 1,
+          "mapping_hint": "Collinear(B,C,E)"
+        },
+        "confidence_hint": "high",
+        "source": "student"
+      },
+      {
+        "claim_id": "S2C1",
+        "type": "ANGLE_MEASURE",
+        "args": [
+          "DCE",
+          "64"
+        ],
+        "depends_on": [
+          "SD2"
+        ],
+        "evidence": {
+          "from_step": 2,
+          "mapping_hint": "MeasureOfAngle(DCE)=64"
+        },
+        "confidence_hint": "medium",
+        "source": "student"
+      },
+      {
+        "claim_id": "S2C2",
+        "type": "ANGLE_MEASURE",
+        "args": [
+          "BCD",
+          "116"
+        ],
+        "depends_on": [
+          "SD1",
+          "SD2"
+        ],
+        "evidence": {
+          "from_step": 2,
+          "mapping_hint": "MeasureOfAngle(BCD)=116"
+        },
+        "confidence_hint": "medium",
+        "source": "student"
+      },
+      {
+        "claim_id": "S3C1",
+        "type": "QUADRILATERAL",
+        "args": [
+          "B",
+          "O",
+          "D",
+          "C"
+        ],
+        "depends_on": [
+          "SD4"
+        ],
+        "evidence": {
+          "from_step": 3,
+          "mapping_hint": "QUADRILATERAL(B,O,D,C)"
+        },
+        "confidence_hint": "high",
+        "source": "student"
+      },
+      {
+        "claim_id": "S4C1",
+        "type": "EQUAL_ANGLE",
+        "args": [
+          "BCD",
+          "BOD"
+        ],
+        "depends_on": [
+          "SD4"
+        ],
+        "evidence": {
+          "from_step": 4,
+          "mapping_hint": "EQUAL_ANGLE(BCD,BOD)"
+        },
+        "confidence_hint": "low",
+        "source": "student"
+      },
+      {
+        "claim_id": "S5C1",
+        "type": "ANGLE_MEASURE",
+        "args": [
+          "BCD",
+          "116"
+        ],
+        "depends_on": [
+          "S2C2"
+        ],
+        "evidence": {
+          "from_step": 5,
+          "mapping_hint": "MeasureOfAngle(BCD)=116"
+        },
+        "confidence_hint": "high",
+        "source": "student"
+      },
+      {
+        "claim_id": "S6C1",
+        "type": "EQUAL_ANGLE",
+        "args": [
+          "BOD",
+          "BCD"
+        ],
+        "depends_on": [
+          "S4C1"
+        ],
+        "evidence": {
+          "from_step": 6,
+          "mapping_hint": "EQUAL_ANGLE(BOD,BCD)"
+        },
+        "confidence_hint": "high",
+        "source": "student"
+      },
+      {
+        "claim_id": "S7C1",
+        "type": "ANGLE_MEASURE",
+        "args": [
+          "BOD",
+          "116"
+        ],
+        "depends_on": [
+          "S5C1",
+          "S6C1"
+        ],
+        "evidence": {
+          "from_step": 7,
+          "mapping_hint": "MeasureOfAngle(BOD)=116"
+        },
+        "confidence_hint": "medium",
+        "source": "student"
+      }
+    ],
+    "givens": [
+      {
+        "claim_id": "G1",
+        "type": "DIAMETER",
+        "args": [
+          "AB"
+        ],
+        "depends_on": [],
+        "evidence": {
+          "source": "problem"
+        },
+        "confidence_hint": "high",
+        "source": "problem"
+      },
+      {
+        "claim_id": "G2",
+        "type": "CENTER",
+        "args": [
+          "O"
+        ],
+        "depends_on": [],
+        "evidence": {
+          "source": "problem"
+        },
+        "confidence_hint": "high",
+        "source": "problem"
+      },
+      {
+        "claim_id": "G3",
+        "type": "POINT_ON_CIRCLE",
+        "args": [
+          "C"
+        ],
+        "depends_on": [],
+        "evidence": {
+          "source": "problem"
+        },
+        "confidence_hint": "high",
+        "source": "problem"
+      }
+    ],
+    "student_diagram_claims": [
+      {
+        "claim_id": "SD1",
+        "type": "COLLINEAR",
+        "args": [
+          "B",
+          "C",
+          "E"
+        ],
+        "depends_on": [],
+        "evidence": {},
+        "confidence_hint": "low",
+        "source": "student_diagram"
+      },
+      {
+        "claim_id": "SD2",
+        "type": "ANGLE_MEASURE",
+        "args": [
+          "DCE",
+          "64"
+        ],
+        "depends_on": [],
+        "evidence": {},
+        "confidence_hint": "low",
+        "source": "student_diagram"
+      },
+      {
+        "claim_id": "SD3",
+        "type": "COCIRCULAR",
+        "args": [
+          "B",
+          "C",
+          "D"
+        ],
+        "depends_on": [],
+        "evidence": {},
+        "confidence_hint": "low",
+        "source": "student_diagram"
+      },
+      {
+        "claim_id": "SD4",
+        "type": "QUADRILATERAL",
+        "args": [
+          "B",
+          "O",
+          "D",
+          "C"
+        ],
+        "depends_on": [],
+        "evidence": {},
+        "confidence_hint": "low",
+        "source": "student_diagram"
+      }
+    ],
+    "verification_results": [
+      {
+        "claim_id": "S1C1",
+        "verdict": "true",
+        "reason_code": "FORMALGEO_VERIFIED",
+        "missing": [],
+        "used_facts": [],
+        "proof_trace": [
+          "algebraic_constraint"
+        ],
+        "evidence_strength": "strong"
+      },
+      {
+        "claim_id": "S2C1",
+        "verdict": "true",
+        "reason_code": "FORMALGEO_VERIFIED",
+        "missing": [],
+        "used_facts": [],
+        "proof_trace": [
+          "algebraic_constraint"
+        ],
+        "evidence_strength": "strong"
+      },
+      {
+        "claim_id": "S2C2",
+        "verdict": "true",
+        "reason_code": "FORMALGEO_VERIFIED",
+        "missing": [],
+        "used_facts": [],
+        "proof_trace": [
+          "assumption"
+        ],
+        "evidence_strength": "strong"
+      },
+      {
+        "claim_id": "S3C1",
+        "verdict": "true",
+        "reason_code": "FORMALGEO_VERIFIED",
+        "missing": [],
+        "used_facts": [],
+        "proof_trace": [
+          "assumption"
+        ],
+        "evidence_strength": "strong"
+      },
+      {
+        "claim_id": "S4C1",
+        "verdict": "true",
+        "reason_code": "FORMALGEO_VERIFIED",
+        "missing": [],
+        "used_facts": [],
+        "proof_trace": [
+          "algebraic_constraint"
+        ],
+        "evidence_strength": "strong"
+      },
+      {
+        "claim_id": "S5C1",
+        "verdict": "true",
+        "reason_code": "FORMALGEO_VERIFIED",
+        "missing": [],
+        "used_facts": [],
+        "proof_trace": [
+          "assumption"
+        ],
+        "evidence_strength": "strong"
+      },
+      {
+        "claim_id": "S6C1",
+        "verdict": "true",
+        "reason_code": "FORMALGEO_VERIFIED",
+        "missing": [],
+        "used_facts": [],
+        "proof_trace": [
+          "algebraic_constraint"
+        ],
+        "evidence_strength": "strong"
+      }
+    ],
+    "rubric_scores": [],
+    "score_total": 100,
+    "score_max": 100,
+    "referee": {
+      "referee_needed": false,
+      "notes": "Using FormalGeo grading",
+      "unknown_claim_ids": []
+    },
+    "symbols_map": {
+      "BCE": [
+        1
+      ],
+      "∠DCE": [
+        2
+      ],
+      "64°": [
+        2
+      ],
+      "∠BCD": [
+        2,
+        4,
+        5,
+        6
+      ],
+      "116°": [
+        2,
+        5,
+        7
+      ],
+      "BODC": [
+        3,
+        4
+      ],
+      "∠BOD": [
+        4,
+        6,
+        7
+      ]
+    },
+    "formalgeo_used": true,
+    "formalgeo_grading": {
+      "total_points": 100,
+      "deductions": [],
+      "step_feedback": [
+        {
+          "step_id": 1,
+          "is_valid": true,
+          "note": "Step is correct but redundant",
+          "theorem_applied": "algebraic_constraint",
+          "confidence": 0.8
+        },
+        {
+          "step_id": 2,
+          "is_valid": true,
+          "note": "Step is correct",
+          "theorem_applied": "algebraic_constraint",
+          "confidence": 0.85
+        },
+        {
+          "step_id": 3,
+          "is_valid": true,
+          "note": "Step is correct",
+          "theorem_applied": "assumption",
+          "confidence": 0.7
+        },
+        {
+          "step_id": 4,
+          "is_valid": true,
+          "note": "Step is correct",
+          "theorem_applied": "assumption",
+          "confidence": 0.7
+        },
+        {
+          "step_id": 5,
+          "is_valid": true,
+          "note": "Step is correct but redundant",
+          "theorem_applied": "algebraic_constraint",
+          "confidence": 0.8
+        },
+        {
+          "step_id": 6,
+          "is_valid": true,
+          "note": "Step is correct",
+          "theorem_applied": "assumption",
+          "confidence": 0.75
+        },
+        {
+          "step_id": 7,
+          "is_valid": true,
+          "note": "Step is correct",
+          "theorem_applied": "algebraic_constraint",
+          "confidence": 0.85
+        }
+      ],
+      "missing_steps": [],
+      "goal_reached": true,
+      "confidence": 0.7785714285714285,
+      "summary": "Student demonstrated complete understanding and correctly solved the problem."
+    }
+  }
+}

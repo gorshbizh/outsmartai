@@ -1,7 +1,13 @@
 #!/usr/bin/env /Users/yud/repo/outsmartai/.venv/bin/python
 """
-Simple E2E Test Runner - No dependencies on shell scripts
+E2E Test Runner for Two-Image Grading Pipeline
 Run with: /Users/yud/repo/outsmartai/.venv/bin/python run_e2e.py
+
+Tests the new two-image grading pipeline that:
+1. Extracts given claims from problem-only image
+2. Extracts student claims from solution image
+3. Verifies each claim with 2-step derivation limit
+4. Applies cascading errors for invalid claims
 """
 
 import os
@@ -12,6 +18,7 @@ import re
 import argparse
 from dotenv import load_dotenv, find_dotenv
 from pathlib import Path
+from typing import List, Tuple, Dict, Any
 
 # Add backend to path
 BACKEND_DIR = Path(__file__).resolve().parent
@@ -32,301 +39,330 @@ def print_section(text):
     print("-"*80 + "\n")
 
 
-def _parse_indices_arg(raw: str) -> set[int]:
+def find_problem_solution_pairs(images_dir: Path) -> List[Tuple[Path, Path, str]]:
+    """
+    Find pairs of (problem_image, solution_image, expected_result).
+
+    Naming convention:
+    - geo_N.png or alg_N.png = problem image
+    - geo_N_c_*.png = correct solution (expect high score)
+    - geo_N_w_*.png = wrong solution (expect deductions)
+
+    Returns:
+        List of (problem_path, solution_path, "correct" | "wrong")
+    """
+    pairs = []
+
+    # Find all problem images (geo_N.png, alg_N.png)
+    problem_pattern = re.compile(r'^(geo|alg)_(\d+)\.png$')
+
+    for problem_path in images_dir.glob("*.png"):
+        match = problem_pattern.match(problem_path.name)
+        if not match:
+            continue
+
+        prefix = match.group(1)  # geo or alg
+        num = match.group(2)      # problem number
+
+        # Find corresponding solution images
+        # Correct solutions: geo_N_c_*.png
+        correct_pattern = f"{prefix}_{num}_c_*.png"
+        for solution_path in images_dir.glob(correct_pattern):
+            pairs.append((problem_path, solution_path, "correct"))
+
+        # Wrong solutions: geo_N_w_*.png
+        wrong_pattern = f"{prefix}_{num}_w_*.png"
+        for solution_path in images_dir.glob(wrong_pattern):
+            pairs.append((problem_path, solution_path, "wrong"))
+
+    return sorted(pairs, key=lambda x: (x[0].name, x[1].name))
+
+
+def _parse_files_arg(raw: str) -> set[str]:
+    """Parse comma-separated filenames (with or without .png extension)"""
     if not raw:
         return set()
     cleaned = raw.strip()
     if cleaned.startswith("[") and cleaned.endswith("]"):
         cleaned = cleaned[1:-1]
     parts = [p.strip() for p in cleaned.split(",") if p.strip()]
-    indices = set()
+    filenames = set()
     for p in parts:
-        if p.isdigit():
-            indices.add(int(p))
-    return indices
+        if p.lower().endswith('.png'):
+            p = p[:-4]
+        filenames.add(p)
+    return filenames
 
 
-def _filter_images_by_indices(image_paths, indices: set[int]):
-    if not indices:
-        return image_paths
-    filtered = []
-    for path in image_paths:
-        match = re.search(r"(\d+)", path.stem)
-        if match and int(match.group(1)) in indices:
-            filtered.append(path)
-    return filtered
+async def run_two_image_test(
+    pipeline,
+    problem_path: Path,
+    solution_path: Path,
+    expected_result: str,
+    output_dir: Path,
+) -> Dict[str, Any]:
+    """Run two-image grading test on a single problem-solution pair"""
+
+    print_section(f"Testing: {problem_path.name} + {solution_path.name}")
+    print(f"Expected result: {expected_result.upper()}")
+
+    # Load images
+    problem_image = problem_path.read_bytes()
+    solution_image = solution_path.read_bytes()
+
+    print(f"  Problem image: {len(problem_image):,} bytes")
+    print(f"  Solution image: {len(solution_image):,} bytes")
+
+    # Run the new two-image pipeline
+    print("\nRunning Two-Image Grading Pipeline...")
+    print("  → ProblemClaimExtractor (extracting givens)")
+    print("  → StudentClaimExtractor (extracting student claims)")
+    print("  → ClaimVerifier (2-step verification with cascading)")
+    print("  → Scorer (calculating final score)")
+
+    try:
+        result = await pipeline.grade(
+            problem_image_data=problem_image,
+            solution_image_data=solution_image,
+            problem_id=problem_path.stem,
+        )
+    except Exception as e:
+        print(f"\n❌ Grading failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return {"success": False, "error": str(e)}
+
+    # Extract results
+    score_data = result.get("score", {})
+    total_points = score_data.get("total_points", 0)
+    valid_claims = score_data.get("valid_claims", 0)
+    invalid_claims = score_data.get("invalid_claims", 0)
+    cascading_errors = score_data.get("cascading_errors", 0)
+
+    # Display results
+    print_header(f"RESULTS: {solution_path.name}")
+
+    # Score
+    if expected_result == "correct":
+        score_icon = "✅" if total_points >= 80 else "⚠️"
+    else:
+        score_icon = "✅" if total_points < 80 else "⚠️"
+
+    print(f"{score_icon} SCORE: {total_points}/100")
+    print(f"   Expected: {'HIGH (correct solution)' if expected_result == 'correct' else 'LOW (wrong solution)'}")
+
+    # Problem claims (givens)
+    problem_claims = result.get("problem_claims", {})
+    given_claims = problem_claims.get("given_claims", [])
+    print(f"\n📋 Given Claims Extracted: {len(given_claims)}")
+    for claim in given_claims[:5]:
+        print(f"   [{claim.get('claim_id')}] {claim.get('type')} {claim.get('args')}")
+    if len(given_claims) > 5:
+        print(f"   ... and {len(given_claims) - 5} more")
+
+    # Student claims
+    student_claims_data = result.get("student_claims", {})
+    student_claims = student_claims_data.get("student_claims", [])
+    print(f"\n✏️ Student Claims Extracted: {len(student_claims)}")
+    for claim in student_claims[:5]:
+        deps = claim.get('depends_on', [])
+        print(f"   [{claim.get('claim_id')}] {claim.get('type')} {claim.get('args')}")
+        if deps:
+            print(f"       depends_on: {deps}")
+    if len(student_claims) > 5:
+        print(f"   ... and {len(student_claims) - 5} more")
+
+    # Verification results
+    verification_results = result.get("verification_results", [])
+    print(f"\n🔍 Verification Summary:")
+    print(f"   ✓ Valid:    {valid_claims}")
+    print(f"   ✗ Invalid:  {invalid_claims}")
+    print(f"   ↯ Cascading: {cascading_errors}")
+
+    # Show details
+    for vr in verification_results:
+        claim_id = vr.get("claim_id", "?")
+        verdict = vr.get("verdict", "?")
+        depth = vr.get("derivation_depth", -1)
+
+        if verdict == "valid":
+            print(f"   ✓ {claim_id}: valid (depth={depth})")
+        elif verdict == "invalid":
+            error = vr.get("error_details", "")[:50]
+            print(f"   ✗ {claim_id}: INVALID - {error}")
+        elif verdict == "cascading_error":
+            root = vr.get("root_cause_claim", "?")
+            print(f"   ↯ {claim_id}: cascading from {root}")
+
+    # Deductions
+    deductions = score_data.get("deductions", [])
+    if deductions:
+        print(f"\n❌ Deductions:")
+        for d in deductions:
+            print(f"   -{d.get('deducted_points', 0)} pts: {d.get('reason', '')[:60]}")
+
+    # Summary
+    print(f"\n📊 Summary: {score_data.get('summary', 'N/A')}")
+
+    # Check if result matches expectation
+    test_passed = False
+    if expected_result == "correct" and total_points >= 80:
+        test_passed = True
+        print(f"\n✅ TEST PASSED: Correct solution got high score ({total_points}/100)")
+    elif expected_result == "wrong" and total_points < 80:
+        test_passed = True
+        print(f"\n✅ TEST PASSED: Wrong solution got low score ({total_points}/100)")
+    elif expected_result == "correct":
+        print(f"\n⚠️ TEST ISSUE: Correct solution got lower than expected ({total_points}/100)")
+    else:
+        print(f"\n⚠️ TEST ISSUE: Wrong solution got higher than expected ({total_points}/100)")
+
+    # Save results
+    output_file = output_dir / f"e2e_result_{problem_path.stem}_{solution_path.stem}.json"
+    output_file.write_text(json.dumps({
+        "problem_image": str(problem_path),
+        "solution_image": str(solution_path),
+        "expected_result": expected_result,
+        "test_passed": test_passed,
+        "result": result,
+    }, indent=2, ensure_ascii=False))
+
+    print(f"\n💾 Results saved to: {output_file}")
+
+    return {
+        "success": True,
+        "test_passed": test_passed,
+        "expected": expected_result,
+        "score": total_points,
+        "valid": valid_claims,
+        "invalid": invalid_claims,
+        "cascading": cascading_errors,
+    }
 
 
 async def main():
-    """Run E2E test with all PNGs in tests/data"""
-    
+    """Run E2E test with two-image grading pipeline"""
+
     load_dotenv(find_dotenv())
 
-    print_header("E2E GRADING TEST: Diameter-Right Angle Problem")
-    
-    # Step 1: Check configuration
+    print_header("TWO-IMAGE GRADING PIPELINE E2E TEST")
+
+    # Configuration check
     print("📋 Configuration Check:")
-    
+
     provider = os.getenv('LLM_PROVIDER', 'mock')
     api_key = os.getenv('LLM_API_KEY', '')
-    
+
     print(f"   LLM Provider: {provider}")
     print(f"   API Key: {'✓ Set' if api_key else '✗ Not set (will use mock)'}")
-    
+
     if provider == 'mock' or not api_key:
         print("\n⚠️  Using MOCK LLM - results will be simulated")
         print("   For real grading, set environment variables:")
         print("     export LLM_PROVIDER=openai")
         print("     export LLM_API_KEY=your_key")
-        print("\n   Continuing with mock data...")
-    
-    # Step 2: Load images
-    print_section("Step 1: Loading Test Images")
-    
-    images_dir = BACKEND_DIR / "tests/data"
-    image_paths = sorted(p for p in images_dir.glob("*.png") if p.is_file())
 
-    parser = argparse.ArgumentParser(description="Run E2E tests on selected PNGs")
+    # Find problem-solution pairs
+    print_section("Finding Problem-Solution Pairs")
+
+    images_dir = BACKEND_DIR / "tests/data"
+    pairs = find_problem_solution_pairs(images_dir)
+
+    parser = argparse.ArgumentParser(description="Run E2E tests on problem-solution pairs")
     parser.add_argument(
-        "--indices",
+        "--problem",
         default="",
-        help="Comma-separated indices to test, e.g. 2,3 or [2, 3] (matches digits in filename)",
+        help="Filter by problem name (e.g., geo_1, geo_2)",
+    )
+    parser.add_argument(
+        "--type",
+        choices=["correct", "wrong", "all"],
+        default="all",
+        help="Filter by solution type",
     )
     args, _ = parser.parse_known_args()
-    indices = _parse_indices_arg(args.indices)
-    if indices:
-        image_paths = _filter_images_by_indices(image_paths, indices)
-    
-    if not image_paths:
-        print("❌ No test images found.")
+
+    # Filter pairs
+    if args.problem:
+        pairs = [(p, s, e) for p, s, e in pairs if args.problem in p.stem]
+    if args.type != "all":
+        pairs = [(p, s, e) for p, s, e in pairs if e == args.type]
+
+    if not pairs:
+        print("❌ No problem-solution pairs found.")
         print(f"   Looked in: {images_dir}")
-        if indices:
-            print(f"   Filtered by indices: {sorted(indices)}")
-        print("\nPlease add a PNG image to tests/data/")
+        print("\nExpected naming convention:")
+        print("   geo_N.png        - Problem image")
+        print("   geo_N_c_1.png    - Correct solution")
+        print("   geo_N_w_1.png    - Wrong solution")
         return
-    
-    print(f"✓ Found {len(image_paths)} image(s):")
-    for img in image_paths:
-        print(f"   - {img.name} ({img.stat().st_size:,} bytes)")
-    
-    # Step 3: Import and initialize
-    print_section("Step 2: Initializing Grading Pipeline")
-    
+
+    print(f"✓ Found {len(pairs)} test pair(s):")
+    for problem, solution, expected in pairs:
+        icon = "✓" if expected == "correct" else "✗"
+        print(f"   {icon} {problem.name} + {solution.name} ({expected})")
+
+    # Initialize pipeline
+    print_section("Initializing Two-Image Grading Pipeline")
+
     try:
         import app as app_module
         print("✓ Imported app module")
     except Exception as e:
         print(f"❌ Failed to import app: {e}")
-        print("\nMake sure you're running from the backend directory:")
-        print("  cd /Users/yud/repo/outsmartai/backend")
-        print("  python run_e2e.py")
+        import traceback
+        traceback.print_exc()
         return
-    
-    llm_service = app_module.LLMService()
-    pipeline = app_module.GradingPipeline(llm_service)
-    print("✓ Initialized LLM service and grading pipeline")
-    
+
+    pipeline = app_module.two_image_pipeline
+    print("✓ Using TwoImageGradingPipeline")
+    print(f"   - ProblemClaimExtractor: {type(pipeline.problem_extractor).__name__}")
+    print(f"   - StudentClaimExtractor: {type(pipeline.student_extractor).__name__}")
+    print(f"   - ClaimVerifier: {type(pipeline.claim_verifier).__name__}")
+    print(f"   - Scorer: {type(pipeline.scorer).__name__}")
+
     output_dir = BACKEND_DIR / "tests/output"
     output_dir.mkdir(exist_ok=True)
 
-    for image_path in image_paths:
-        image_bytes = image_path.read_bytes()
+    # Run tests
+    results = []
+    for problem_path, solution_path, expected_result in pairs:
+        result = await run_two_image_test(
+            pipeline=pipeline,
+            problem_path=problem_path,
+            solution_path=solution_path,
+            expected_result=expected_result,
+            output_dir=output_dir,
+        )
+        results.append({
+            "problem": problem_path.name,
+            "solution": solution_path.name,
+            "expected": expected_result,
+            **result,
+        })
 
-        # Step 4: Analyze image
-        print_section(f"Step 3: Analyzing Image with LLM ({image_path.name})")
-        
-        try:
-            print("Running LLM image analysis...")
-            analysis = await llm_service.analyze_image(image_bytes)
-            print("✓ Analysis complete")
-            
-            text_desc = analysis.get('text_description', 'N/A')
-            draw_desc = analysis.get('drawing_description', 'N/A')
-            
-            print(f"\n📝 Text extracted: {len(text_desc)} characters")
-            print(f"   {text_desc[:120]}...")
-            
-            print(f"\n🎨 Drawing described: {len(draw_desc)} characters")
-            print(f"   {draw_desc[:120]}...")
-            
-            if 'steps' in analysis:
-                print(f"\n📋 Steps found: {len(analysis['steps'])}")
-                for i, step in enumerate(analysis['steps'][:3], 1):
-                    print(f"   {i}. {step[:50]}...")
-            
-        except Exception as e:
-            print(f"❌ Image analysis failed: {e}")
-            import traceback
-            traceback.print_exc()
-            continue
-        
-        # Step 5: Run grading pipeline
-        print_section("Step 4: Running Multi-Agent Grading Pipeline")
-        
-        print("Executing agents:")
-        print("  → A1: StepExtractorAgent")
-        print("  → A2: ClaimGeneratorAgent")
-        print("  → GeometryFormalizerAgent")
-        print("  → H1: FormalGeoStepGrader (if available)")
-        print("  → A3: RubricScorerAgent")
-        print("  → A4: RefereeAgent")
-        
-        try:
-            grading_result = await pipeline.grade(
-                problem_id="diameter_right_angle",
-                text_description=analysis.get("text_description", ""),
-                drawing_description=analysis.get("drawing_description", ""),
-                image_data=image_bytes,
-                use_formalgeo=True
-            )
-            print("\n✓ Grading complete!")
-            
-        except Exception as e:
-            print(f"\n❌ Grading failed: {e}")
-            import traceback
-            traceback.print_exc()
-            continue
-        
-        # Step 6: Display results
-        print_header(f"GRADING RESULTS ({image_path.name})")
-        
-        score = grading_result.get('score_total', 0)
-        max_score = grading_result.get('score_max', 100)
-        percentage = (score / max_score * 100) if max_score > 0 else 0
-        
-        print(f"🎯 FINAL SCORE: {score}/{max_score} ({percentage:.1f}%)")
-        
-        # Check if FormalGeo was used
-        formalgeo_used = grading_result.get('formalgeo_used', False)
-        print(f"🔬 FormalGeo Grading: {'✅ ENABLED' if formalgeo_used else '❌ NOT USED'}")
-        
-        # Show steps
-        steps = grading_result.get('steps', [])
-        print(f"\n📝 Steps Extracted: {len(steps)}")
-        for i, step in enumerate(steps[:5], 1):
-            raw_text = step.get('raw_text', 'N/A')
-            print(f"   {i}. {raw_text[:60]}...")
-        if len(steps) > 5:
-            print(f"   ... and {len(steps) - 5} more steps")
-        
-        # Show claims
-        claims = grading_result.get('claims', [])
-        print(f"\n🔍 Claims Generated: {len(claims)}")
-        for i, claim in enumerate(claims[:5], 1):
-            claim_id = claim.get('claim_id', '?')
-            claim_type = claim.get('type', '?')
-            args = claim.get('args', [])
-            args_str = ', '.join(str(a) for a in args[:2])
-            print(f"   {i}. [{claim_id}] {claim_type}({args_str})")
-        if len(claims) > 5:
-            print(f"   ... and {len(claims) - 5} more claims")
-        
-        # Show verification results
-        verification_results = grading_result.get('verification_results', [])
-        if verification_results:
-            true_count = sum(1 for r in verification_results if r.get('verdict') == 'true')
-            false_count = sum(1 for r in verification_results if r.get('verdict') == 'false')
-            unknown_count = sum(1 for r in verification_results if r.get('verdict') == 'unknown')
-            
-            print(f"\n✅ Verification Summary:")
-            print(f"   ✓ True:    {true_count}")
-            print(f"   ✗ False:   {false_count}")
-            print(f"   ? Unknown: {unknown_count}")
-            
-            if false_count > 0:
-                print(f"\n❌ Failed Claims:")
-                for result in verification_results:
-                    if result.get('verdict') == 'false':
-                        claim_id = result.get('claim_id', '?')
-                        reason = result.get('reason_code', 'N/A')
-                        print(f"   - {claim_id}: {reason}")
-        
-        # Show rubric scores
-        rubric_scores = grading_result.get('rubric_scores', [])
-        if rubric_scores:
-            print(f"\n💯 Rubric Scores:")
-            for rs in rubric_scores:
-                item_id = rs.get('rubric_item_id', '?')
-                earned = rs.get('earned', 0)
-                max_pts = rs.get('max', 0)
-                notes = rs.get('notes', '')[:50]
-                print(f"   [{item_id}] {earned}/{max_pts} - {notes}")
-        
-        # Show FormalGeo detailed report if available
-        if formalgeo_used and 'formalgeo_grading' in grading_result:
-            print_section("FormalGeo Detailed Report")
-            
-            fg = grading_result['formalgeo_grading']
-            
-            print(f"📊 FormalGeo Score: {fg.get('total_points', 0)}/100")
-            print(f"🎯 Goal Reached: {fg.get('goal_reached', False)}")
-            print(f"💯 Confidence: {fg.get('confidence', 0):.2f}")
-            
-            # Step feedback
-            step_feedback = fg.get('step_feedback', [])
-            if step_feedback:
-                print(f"\n📝 Step-by-Step Verification ({len(step_feedback)} steps):")
-                for feedback in step_feedback[:8]:
-                    step_id = feedback.get('step_id', '?')
-                    is_valid = feedback.get('is_valid', False)
-                    status = "✓" if is_valid else "✗"
-                    
-                    if is_valid:
-                        theorem = feedback.get('theorem_applied', 'N/A')
-                        print(f"   {status} Step {step_id}: Valid (theorem: {theorem})")
-                    else:
-                        error = feedback.get('error_details', 'Invalid')[:60]
-                        print(f"   {status} Step {step_id}: {error}")
-                
-                if len(step_feedback) > 8:
-                    print(f"   ... and {len(step_feedback) - 8} more steps")
-            
-            # Deductions
-            deductions = fg.get('deductions', [])
-            if deductions:
-                print(f"\n❌ Point Deductions ({len(deductions)} total):")
-                for d in deductions:
-                    points = d.get('deducted_points', 0)
-                    reason = d.get('deduction_reason', 'N/A')[:80]
-                    step = d.get('deduction_step', '?')
-                    print(f"\n   -{points} pts | {step}")
-                    print(f"   {reason}")
-            
-            # Summary
-            summary = fg.get('summary', 'N/A')
-            print(f"\n📄 Summary:")
-            print(f"   {summary}")
-        
-        # Save results
-        output_file = output_dir / f"e2e_result_{image_path.stem}.json"
-        output_file.write_text(json.dumps({
-            "image": str(image_path),
-            "score": score,
-            "max_score": max_score,
-            "formalgeo_used": formalgeo_used,
-            "analysis": analysis,
-            "grading": grading_result
-        }, indent=2, ensure_ascii=False))
-        
-        print(f"\n💾 Full results saved to:")
-        print(f"   {output_file}")
-        
-        print(f"\nSummary for {image_path.name}:")
-        print(f"  • Score: {score}/{max_score} ({percentage:.1f}%)")
-        print(f"  • FormalGeo: {'Yes' if formalgeo_used else 'No'}")
-        print(f"  • Steps: {len(steps)}")
-        print(f"  • Claims: {len(claims)}")
-        
-        if formalgeo_used:
-            print(f"\n✅ FormalGeo theorem-proving grading was used!")
-            print(f"   Your solution was verified with mathematical rigor.")
-        else:
-            print(f"\n⚠️  FormalGeo was not available - used LLM-based verification")
-            print(f"   To enable FormalGeo: See QUICKSTART.md")
-        
-        print()
+    # Summary
+    print_header("TEST SUMMARY")
 
-    print_header("TESTS COMPLETED")
+    passed = sum(1 for r in results if r.get("test_passed", False))
+    failed = len(results) - passed
+
+    print(f"Total tests: {len(results)}")
+    print(f"  ✅ Passed: {passed}")
+    print(f"  ❌ Failed: {failed}")
+
+    print("\nDetailed Results:")
+    for r in results:
+        icon = "✅" if r.get("test_passed") else "❌"
+        score = r.get("score", "N/A")
+        expected = r.get("expected", "?")
+        print(f"  {icon} {r['solution']}: {score}/100 (expected: {expected})")
+
+    if failed > 0:
+        print(f"\n⚠️ {failed} test(s) did not match expectations.")
+        print("   This may indicate issues with claim extraction or verification.")
+    else:
+        print(f"\n✅ All tests passed!")
 
 
 if __name__ == "__main__":

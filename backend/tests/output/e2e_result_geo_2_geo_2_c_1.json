@@ -1,0 +1,198 @@
+{
+  "problem_image": "/Users/yud/repo/outsmartai/backend/tests/data/geo_2.png",
+  "solution_image": "/Users/yud/repo/outsmartai/backend/tests/data/geo_2_c_1.png",
+  "expected_result": "correct",
+  "test_passed": true,
+  "result": {
+    "success": true,
+    "problem_id": "geo_2",
+    "problem_claims": {
+      "construction_cdl": [
+        "Cocircular(O,A,B,C,D)",
+        "Collinear(BCE)"
+      ],
+      "given_claims": [
+        {
+          "claim_id": "G1",
+          "type": "IsCentreOfCircle",
+          "args": [
+            "O",
+            "O"
+          ],
+          "depends_on": [],
+          "evidence": {
+            "source": "problem",
+            "cdl": "IsCentreOfCircle(O,O)"
+          },
+          "confidence_hint": "high",
+          "source": "problem"
+        },
+        {
+          "claim_id": "G2",
+          "type": "Equal",
+          "args": [
+            "MeasureOfAngle(DCE)",
+            "64"
+          ],
+          "depends_on": [],
+          "evidence": {
+            "source": "problem",
+            "cdl": "Equal(MeasureOfAngle(DCE),64)"
+          },
+          "confidence_hint": "high",
+          "source": "problem"
+        }
+      ],
+      "goal_cdl": "Value(MeasureOfAngle(DOB))"
+    },
+    "student_claims": {
+      "student_claims": [
+        {
+          "claim_id": "S1C1",
+          "type": "Collinear",
+          "args": [
+            "Collinear(BCE)"
+          ],
+          "depends_on": [],
+          "evidence": {
+            "raw_text": "BCE is a straight line",
+            "cdl": "Collinear(BCE)"
+          },
+          "confidence_hint": "medium",
+          "source": "student"
+        },
+        {
+          "claim_id": "S1C2",
+          "type": "AngleMeasure",
+          "args": [
+            "Equal(MeasureOfAngle(BCD),116)"
+          ],
+          "depends_on": [
+            "G2",
+            "S1C1"
+          ],
+          "evidence": {
+            "raw_text": "since DCE is 64° BCD is 116°",
+            "cdl": "Equal(MeasureOfAngle(BCD),116)"
+          },
+          "confidence_hint": "medium",
+          "source": "student"
+        },
+        {
+          "claim_id": "S2C1",
+          "type": "AngleMeasure",
+          "args": [
+            "Equal(MeasureOfAngle(BAD),64)"
+          ],
+          "depends_on": [
+            "S1C2"
+          ],
+          "evidence": {
+            "raw_text": "ABCD is a cyclic quadrilateral thus angle BAD is also 64°",
+            "cdl": "Equal(MeasureOfAngle(BAD),64)"
+          },
+          "confidence_hint": "medium",
+          "source": "student"
+        },
+        {
+          "claim_id": "S3C1",
+          "type": "InscribedAngle",
+          "args": [
+            "Equal(MeasureOfAngle(BOD),Mul(2,MeasureOfAngle(BAD)))"
+          ],
+          "depends_on": [],
+          "evidence": {
+            "raw_text": "∠BOD = 2(∠BAD)",
+            "cdl": "Equal(MeasureOfAngle(BOD),Mul(2,MeasureOfAngle(BAD)))"
+          },
+          "confidence_hint": "medium",
+          "source": "student"
+        },
+        {
+          "claim_id": "S3C2",
+          "type": "AngleMeasure",
+          "args": [
+            "Equal(MeasureOfAngle(BOD),128)"
+          ],
+          "depends_on": [
+            "S2C1",
+            "S3C1"
+          ],
+          "evidence": {
+            "raw_text": "∠BOD = 128",
+            "cdl": "Equal(MeasureOfAngle(BOD),128)"
+          },
+          "confidence_hint": "medium",
+          "source": "student"
+        }
+      ],
+      "step_order": [
+        "S1C1",
+        "S1C2",
+        "S2C1",
+        "S3C1",
+        "S3C2"
+      ]
+    },
+    "verification_results": [
+      {
+        "claim_id": "S1C1",
+        "verdict": "valid",
+        "derivation_depth": 1,
+        "error_type": null,
+        "error_details": "",
+        "used_facts": [],
+        "proof_trace": [],
+        "root_cause_claim": null
+      },
+      {
+        "claim_id": "S1C2",
+        "verdict": "valid",
+        "derivation_depth": 1,
+        "error_type": null,
+        "error_details": "",
+        "used_facts": [],
+        "proof_trace": [],
+        "root_cause_claim": null
+      },
+      {
+        "claim_id": "S2C1",
+        "verdict": "valid",
+        "derivation_depth": 1,
+        "error_type": null,
+        "error_details": "",
+        "used_facts": [],
+        "proof_trace": [],
+        "root_cause_claim": null
+      },
+      {
+        "claim_id": "S3C1",
+        "verdict": "valid",
+        "derivation_depth": 1,
+        "error_type": null,
+        "error_details": "",
+        "used_facts": [],
+        "proof_trace": [],
+        "root_cause_claim": null
+      },
+      {
+        "claim_id": "S3C2",
+        "verdict": "valid",
+        "derivation_depth": 1,
+        "error_type": null,
+        "error_details": "",
+        "used_facts": [],
+        "proof_trace": [],
+        "root_cause_claim": null
+      }
+    ],
+    "score": {
+      "total_points": 100,
+      "valid_claims": 5,
+      "invalid_claims": 0,
+      "cascading_errors": 0,
+      "deductions": [],
+      "summary": "5/5 claims verified successfully"
+    }
+  }
+}

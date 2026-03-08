@@ -13,7 +13,10 @@
       "Bash(find tests/output -name \"*.json\" -exec grep -l \"AngleSum180\" {} ;)",
       "Bash(python3 run_e2e.py --indices 3)",
       "Bash(git checkout:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(python:*)",
+      "Bash(source:*)",
+      "Bash(python3:*)"
     ],
     "deny": [],
     "ask": []

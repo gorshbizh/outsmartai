@@ -1,0 +1,574 @@
+{
+  "problem_image": "/Users/yud/repo/outsmartai/backend/tests/data/geo_1.png",
+  "solution_image": "/Users/yud/repo/outsmartai/backend/tests/data/geo_1_c_1.png",
+  "expected_result": "correct",
+  "test_passed": true,
+  "result": {
+    "success": true,
+    "problem_id": "geo_1",
+    "problem_claims": {
+      "construction_cdl": [
+        "Shape(AB,BC,CA)",
+        "Cocircular(O,A,B,C)"
+      ],
+      "given_claims": [
+        {
+          "claim_id": "G1",
+          "type": "IsDiameterOfCircle",
+          "args": [
+            "AB",
+            "O"
+          ],
+          "depends_on": [],
+          "evidence": {
+            "source": "problem",
+            "cdl": "IsDiameterOfCircle(AB,O)"
+          },
+          "confidence_hint": "high",
+          "source": "problem"
+        },
+        {
+          "claim_id": "G2",
+          "type": "IsCentreOfCircle",
+          "args": [
+            "O",
+            "O"
+          ],
+          "depends_on": [],
+          "evidence": {
+            "source": "problem",
+            "cdl": "IsCentreOfCircle(O,O)"
+          },
+          "confidence_hint": "high",
+          "source": "problem"
+        }
+      ],
+      "goal_cdl": "Equal(MeasureOfAngle(ACB),90)"
+    },
+    "student_claims": {
+      "student_claims": [
+        {
+          "claim_id": "S1C1",
+          "type": "EqualLength",
+          "args": [
+            "Equal(LengthOfLine(OA),LengthOfLine(OC))"
+          ],
+          "depends_on": [
+            "G2"
+          ],
+          "evidence": {
+            "raw_text": "OA = OC = OB",
+            "cdl": "Equal(LengthOfLine(OA),LengthOfLine(OC))"
+          },
+          "confidence_hint": "medium",
+          "source": "student"
+        },
+        {
+          "claim_id": "S1C2",
+          "type": "EqualLength",
+          "args": [
+            "Equal(LengthOfLine(OC),LengthOfLine(OB))"
+          ],
+          "depends_on": [
+            "G2"
+          ],
+          "evidence": {
+            "raw_text": "OA = OC = OB",
+            "cdl": "Equal(LengthOfLine(OC),LengthOfLine(OB))"
+          },
+          "confidence_hint": "medium",
+          "source": "student"
+        },
+        {
+          "claim_id": "S2C1",
+          "type": "IsoscelesTriangle",
+          "args": [
+            "IsoscelesTriangle(AOC)"
+          ],
+          "depends_on": [
+            "S1C1"
+          ],
+          "evidence": {
+            "raw_text": "Triangle AOC ... isosceles",
+            "cdl": "IsoscelesTriangle(AOC)"
+          },
+          "confidence_hint": "medium",
+          "source": "student"
+        },
+        {
+          "claim_id": "S2C2",
+          "type": "IsoscelesTriangle",
+          "args": [
+            "IsoscelesTriangle(BOC)"
+          ],
+          "depends_on": [
+            "S1C2"
+          ],
+          "evidence": {
+            "raw_text": "Triangle BOC ... isosceles",
+            "cdl": "IsoscelesTriangle(BOC)"
+          },
+          "confidence_hint": "medium",
+          "source": "student"
+        },
+        {
+          "claim_id": "S3C1",
+          "type": "EqualAngle",
+          "args": [
+            "Equal(MeasureOfAngle(OAC),MeasureOfAngle(OCA))"
+          ],
+          "depends_on": [
+            "S2C1"
+          ],
+          "evidence": {
+            "raw_text": "∠OAC = ∠OCA",
+            "cdl": "Equal(MeasureOfAngle(OAC),MeasureOfAngle(OCA))"
+          },
+          "confidence_hint": "medium",
+          "source": "student"
+        },
+        {
+          "claim_id": "S3C2",
+          "type": "EqualAngle",
+          "args": [
+            "Equal(MeasureOfAngle(OBC),MeasureOfAngle(OCB))"
+          ],
+          "depends_on": [
+            "S2C2"
+          ],
+          "evidence": {
+            "raw_text": "∠OBC = ∠OCB",
+            "cdl": "Equal(MeasureOfAngle(OBC),MeasureOfAngle(OCB))"
+          },
+          "confidence_hint": "medium",
+          "source": "student"
+        },
+        {
+          "claim_id": "S4C1",
+          "type": "AngleMeasure",
+          "args": [
+            "Equal(MeasureOfAngle(OCA),x)"
+          ],
+          "depends_on": [],
+          "evidence": {
+            "raw_text": "∠OCA = x",
+            "cdl": "Equal(MeasureOfAngle(OCA),x)"
+          },
+          "confidence_hint": "medium",
+          "source": "student"
+        },
+        {
+          "claim_id": "S4C2",
+          "type": "AngleMeasure",
+          "args": [
+            "Equal(MeasureOfAngle(OAC),x)"
+          ],
+          "depends_on": [
+            "S3C1"
+          ],
+          "evidence": {
+            "raw_text": "∠OCA = x = ∠OAC",
+            "cdl": "Equal(MeasureOfAngle(OAC),x)"
+          },
+          "confidence_hint": "medium",
+          "source": "student"
+        },
+        {
+          "claim_id": "S4C3",
+          "type": "AngleMeasure",
+          "args": [
+            "Equal(MeasureOfAngle(OCB),y)"
+          ],
+          "depends_on": [],
+          "evidence": {
+            "raw_text": "∠OCB = y",
+            "cdl": "Equal(MeasureOfAngle(OCB),y)"
+          },
+          "confidence_hint": "medium",
+          "source": "student"
+        },
+        {
+          "claim_id": "S4C4",
+          "type": "AngleMeasure",
+          "args": [
+            "Equal(MeasureOfAngle(OBC),y)"
+          ],
+          "depends_on": [
+            "S3C2"
+          ],
+          "evidence": {
+            "raw_text": "∠OCB = y = ∠OBC",
+            "cdl": "Equal(MeasureOfAngle(OBC),y)"
+          },
+          "confidence_hint": "medium",
+          "source": "student"
+        },
+        {
+          "claim_id": "S5C1",
+          "type": "EqualAngle",
+          "args": [
+            "Equal(Add(MeasureOfAngle(ACO),MeasureOfAngle(OCB)),MeasureOfAngle(ACB))"
+          ],
+          "depends_on": [],
+          "evidence": {
+            "raw_text": "∠ACB = ∠ACO + ∠OCB",
+            "cdl": "Equal(Add(MeasureOfAngle(ACO),MeasureOfAngle(OCB)),MeasureOfAngle(ACB))"
+          },
+          "confidence_hint": "medium",
+          "source": "student"
+        },
+        {
+          "claim_id": "S5C2",
+          "type": "AngleMeasure",
+          "args": [
+            "Equal(MeasureOfAngle(ACB),Add(x,y))"
+          ],
+          "depends_on": [
+            "S4C1",
+            "S4C3",
+            "S5C1"
+          ],
+          "evidence": {
+            "raw_text": "∠ACB = ... = x + y",
+            "cdl": "Equal(MeasureOfAngle(ACB),Add(x,y))"
+          },
+          "confidence_hint": "medium",
+          "source": "student"
+        },
+        {
+          "claim_id": "S6C1",
+          "type": "EqualAngle",
+          "args": [
+            "Equal(MeasureOfAngle(OAC),MeasureOfAngle(BAC))"
+          ],
+          "depends_on": [],
+          "evidence": {
+            "raw_text": "∠OAC = ∠BAC",
+            "cdl": "Equal(MeasureOfAngle(OAC),MeasureOfAngle(BAC))"
+          },
+          "confidence_hint": "medium",
+          "source": "student"
+        },
+        {
+          "claim_id": "S6C2",
+          "type": "EqualAngle",
+          "args": [
+            "Equal(MeasureOfAngle(OBC),MeasureOfAngle(CBA))"
+          ],
+          "depends_on": [],
+          "evidence": {
+            "raw_text": "∠OBC = ∠CBA",
+            "cdl": "Equal(MeasureOfAngle(OBC),MeasureOfAngle(CBA))"
+          },
+          "confidence_hint": "medium",
+          "source": "student"
+        },
+        {
+          "claim_id": "S7C1",
+          "type": "SupplementaryAngles",
+          "args": [
+            "Equal(Add(Add(MeasureOfAngle(ACB),MeasureOfAngle(BAC)),MeasureOfAngle(CBA)),180)"
+          ],
+          "depends_on": [],
+          "evidence": {
+            "raw_text": "∠ACB + ∠BAC + ∠CBA = 180°",
+            "cdl": "Equal(Add(Add(MeasureOfAngle(ACB),MeasureOfAngle(BAC)),MeasureOfAngle(CBA)),180)"
+          },
+          "confidence_hint": "medium",
+          "source": "student"
+        },
+        {
+          "claim_id": "S7C2",
+          "type": "SupplementaryAngles",
+          "args": [
+            "Equal(Add(Add(MeasureOfAngle(ACB),MeasureOfAngle(OAC)),MeasureOfAngle(OBC)),180)"
+          ],
+          "depends_on": [
+            "S6C1",
+            "S6C2",
+            "S7C1"
+          ],
+          "evidence": {
+            "raw_text": "∠ACB + ∠OAC + ∠OBC = 180°",
+            "cdl": "Equal(Add(Add(MeasureOfAngle(ACB),MeasureOfAngle(OAC)),MeasureOfAngle(OBC)),180)"
+          },
+          "confidence_hint": "medium",
+          "source": "student"
+        },
+        {
+          "claim_id": "S8C1",
+          "type": "SupplementaryAngles",
+          "args": [
+            "Equal(Add(Add(Add(x,y),x),y),180)"
+          ],
+          "depends_on": [
+            "S4C2",
+            "S4C4",
+            "S5C2",
+            "S7C2"
+          ],
+          "evidence": {
+            "raw_text": "(x+y) + x + y = 180°",
+            "cdl": "Equal(Add(Add(Add(x,y),x),y),180)"
+          },
+          "confidence_hint": "medium",
+          "source": "student"
+        },
+        {
+          "claim_id": "S8C2",
+          "type": "Equal",
+          "args": [
+            "Equal(Add(x,y),90)"
+          ],
+          "depends_on": [
+            "S8C1"
+          ],
+          "evidence": {
+            "raw_text": "x + y = 90°",
+            "cdl": "Equal(Add(x,y),90)"
+          },
+          "confidence_hint": "medium",
+          "source": "student"
+        },
+        {
+          "claim_id": "S9C1",
+          "type": "RightAngle",
+          "args": [
+            "Equal(MeasureOfAngle(ACB),90)"
+          ],
+          "depends_on": [
+            "S5C2",
+            "S8C2"
+          ],
+          "evidence": {
+            "raw_text": "∠ACB = 90° and is right angle",
+            "cdl": "Equal(MeasureOfAngle(ACB),90)"
+          },
+          "confidence_hint": "medium",
+          "source": "student"
+        }
+      ],
+      "step_order": [
+        "S1C1",
+        "S1C2",
+        "S2C1",
+        "S2C2",
+        "S3C1",
+        "S3C2",
+        "S4C1",
+        "S4C2",
+        "S4C3",
+        "S4C4",
+        "S5C1",
+        "S5C2",
+        "S6C1",
+        "S6C2",
+        "S7C1",
+        "S7C2",
+        "S8C1",
+        "S8C2",
+        "S9C1"
+      ]
+    },
+    "verification_results": [
+      {
+        "claim_id": "S1C1",
+        "verdict": "valid",
+        "derivation_depth": 1,
+        "error_type": null,
+        "error_details": "",
+        "used_facts": [],
+        "proof_trace": [],
+        "root_cause_claim": null
+      },
+      {
+        "claim_id": "S1C2",
+        "verdict": "valid",
+        "derivation_depth": 1,
+        "error_type": null,
+        "error_details": "",
+        "used_facts": [],
+        "proof_trace": [],
+        "root_cause_claim": null
+      },
+      {
+        "claim_id": "S2C1",
+        "verdict": "valid",
+        "derivation_depth": 1,
+        "error_type": null,
+        "error_details": "",
+        "used_facts": [],
+        "proof_trace": [],
+        "root_cause_claim": null
+      },
+      {
+        "claim_id": "S2C2",
+        "verdict": "valid",
+        "derivation_depth": 1,
+        "error_type": null,
+        "error_details": "",
+        "used_facts": [],
+        "proof_trace": [],
+        "root_cause_claim": null
+      },
+      {
+        "claim_id": "S3C1",
+        "verdict": "valid",
+        "derivation_depth": 1,
+        "error_type": null,
+        "error_details": "",
+        "used_facts": [],
+        "proof_trace": [],
+        "root_cause_claim": null
+      },
+      {
+        "claim_id": "S3C2",
+        "verdict": "valid",
+        "derivation_depth": 1,
+        "error_type": null,
+        "error_details": "",
+        "used_facts": [],
+        "proof_trace": [],
+        "root_cause_claim": null
+      },
+      {
+        "claim_id": "S4C1",
+        "verdict": "valid",
+        "derivation_depth": 1,
+        "error_type": null,
+        "error_details": "",
+        "used_facts": [],
+        "proof_trace": [],
+        "root_cause_claim": null
+      },
+      {
+        "claim_id": "S4C2",
+        "verdict": "valid",
+        "derivation_depth": 1,
+        "error_type": null,
+        "error_details": "",
+        "used_facts": [],
+        "proof_trace": [],
+        "root_cause_claim": null
+      },
+      {
+        "claim_id": "S4C3",
+        "verdict": "valid",
+        "derivation_depth": 1,
+        "error_type": null,
+        "error_details": "",
+        "used_facts": [],
+        "proof_trace": [],
+        "root_cause_claim": null
+      },
+      {
+        "claim_id": "S4C4",
+        "verdict": "valid",
+        "derivation_depth": 1,
+        "error_type": null,
+        "error_details": "",
+        "used_facts": [],
+        "proof_trace": [],
+        "root_cause_claim": null
+      },
+      {
+        "claim_id": "S5C1",
+        "verdict": "valid",
+        "derivation_depth": 1,
+        "error_type": null,
+        "error_details": "",
+        "used_facts": [],
+        "proof_trace": [],
+        "root_cause_claim": null
+      },
+      {
+        "claim_id": "S5C2",
+        "verdict": "valid",
+        "derivation_depth": 1,
+        "error_type": null,
+        "error_details": "",
+        "used_facts": [],
+        "proof_trace": [],
+        "root_cause_claim": null
+      },
+      {
+        "claim_id": "S6C1",
+        "verdict": "valid",
+        "derivation_depth": 1,
+        "error_type": null,
+        "error_details": "",
+        "used_facts": [],
+        "proof_trace": [],
+        "root_cause_claim": null
+      },
+      {
+        "claim_id": "S6C2",
+        "verdict": "valid",
+        "derivation_depth": 1,
+        "error_type": null,
+        "error_details": "",
+        "used_facts": [],
+        "proof_trace": [],
+        "root_cause_claim": null
+      },
+      {
+        "claim_id": "S7C1",
+        "verdict": "valid",
+        "derivation_depth": 1,
+        "error_type": null,
+        "error_details": "",
+        "used_facts": [],
+        "proof_trace": [],
+        "root_cause_claim": null
+      },
+      {
+        "claim_id": "S7C2",
+        "verdict": "valid",
+        "derivation_depth": 1,
+        "error_type": null,
+        "error_details": "",
+        "used_facts": [],
+        "proof_trace": [],
+        "root_cause_claim": null
+      },
+      {
+        "claim_id": "S8C1",
+        "verdict": "valid",
+        "derivation_depth": 1,
+        "error_type": null,
+        "error_details": "",
+        "used_facts": [],
+        "proof_trace": [],
+        "root_cause_claim": null
+      },
+      {
+        "claim_id": "S8C2",
+        "verdict": "valid",
+        "derivation_depth": 1,
+        "error_type": null,
+        "error_details": "",
+        "used_facts": [],
+        "proof_trace": [],
+        "root_cause_claim": null
+      },
+      {
+        "claim_id": "S9C1",
+        "verdict": "valid",
+        "derivation_depth": 1,
+        "error_type": null,
+        "error_details": "",
+        "used_facts": [],
+        "proof_trace": [],
+        "root_cause_claim": null
+      }
+    ],
+    "score": {
+      "total_points": 100,
+      "valid_claims": 19,
+      "invalid_claims": 0,
+      "cascading_errors": 0,
+      "deductions": [],
+      "summary": "19/19 claims verified successfully"
+    }
+  }
+}

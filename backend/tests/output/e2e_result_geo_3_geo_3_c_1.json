@@ -1,0 +1,186 @@
+{
+  "problem_image": "/Users/yud/repo/outsmartai/backend/tests/data/geo_3.png",
+  "solution_image": "/Users/yud/repo/outsmartai/backend/tests/data/geo_3_c_1.png",
+  "expected_result": "correct",
+  "test_passed": true,
+  "result": {
+    "success": true,
+    "problem_id": "geo_3",
+    "problem_claims": {
+      "construction_cdl": [
+        "Cocircular(O,A,B,C,D)",
+        "Shape(AB,BC,CA)",
+        "Shape(DC,CA,AD)"
+      ],
+      "given_claims": [
+        {
+          "claim_id": "G1",
+          "type": "IsCentreOfCircle",
+          "args": [
+            "O",
+            "O"
+          ],
+          "depends_on": [],
+          "evidence": {
+            "source": "problem",
+            "cdl": "IsCentreOfCircle(O,O)"
+          },
+          "confidence_hint": "high",
+          "source": "problem"
+        },
+        {
+          "claim_id": "G2",
+          "type": "IsDiameterOfCircle",
+          "args": [
+            "DC",
+            "O"
+          ],
+          "depends_on": [],
+          "evidence": {
+            "source": "problem",
+            "cdl": "IsDiameterOfCircle(DC,O)"
+          },
+          "confidence_hint": "high",
+          "source": "problem"
+        },
+        {
+          "claim_id": "G3",
+          "type": "Equal",
+          "args": [
+            "MeasureOfAngle(ABC)",
+            "20"
+          ],
+          "depends_on": [],
+          "evidence": {
+            "source": "problem",
+            "cdl": "Equal(MeasureOfAngle(ABC),20)"
+          },
+          "confidence_hint": "high",
+          "source": "problem"
+        }
+      ],
+      "goal_cdl": "Value(MeasureOfAngle(DCA))"
+    },
+    "student_claims": {
+      "student_claims": [
+        {
+          "claim_id": "S1C1",
+          "type": "EqualAngle",
+          "args": [
+            "Equal(MeasureOfAngle(ABC),MeasureOfAngle(CDA))"
+          ],
+          "depends_on": [],
+          "evidence": {
+            "raw_text": "∠ABC = ∠CDA",
+            "cdl": "Equal(MeasureOfAngle(ABC),MeasureOfAngle(CDA))"
+          },
+          "confidence_hint": "medium",
+          "source": "student"
+        },
+        {
+          "claim_id": "S2C1",
+          "type": "RightAngle",
+          "args": [
+            "Equal(MeasureOfAngle(DAC),90)"
+          ],
+          "depends_on": [
+            "G2"
+          ],
+          "evidence": {
+            "raw_text": "Since line DC is the diameter of the circle, Triangle ADC is a right triangle and Angle at A is 90°",
+            "cdl": "Equal(MeasureOfAngle(DAC),90)"
+          },
+          "confidence_hint": "medium",
+          "source": "student"
+        },
+        {
+          "claim_id": "S3C1",
+          "type": "SupplementaryAngles",
+          "args": [
+            "Equal(Add(Add(MeasureOfAngle(DAC),MeasureOfAngle(ADC)),MeasureOfAngle(DCA)),180)"
+          ],
+          "depends_on": [],
+          "evidence": {
+            "raw_text": "180° = ∠A + ∠D + ∠DCA",
+            "cdl": "Equal(Add(Add(MeasureOfAngle(DAC),MeasureOfAngle(ADC)),MeasureOfAngle(DCA)),180)"
+          },
+          "confidence_hint": "medium",
+          "source": "student"
+        },
+        {
+          "claim_id": "S4C1",
+          "type": "AngleMeasure",
+          "args": [
+            "Equal(MeasureOfAngle(DCA),70)"
+          ],
+          "depends_on": [
+            "S2C1",
+            "G3"
+          ],
+          "evidence": {
+            "raw_text": "180° = 90° + 20° + x; x = 70°; ∠DCA = 70°",
+            "cdl": "Equal(MeasureOfAngle(DCA),70)"
+          },
+          "confidence_hint": "medium",
+          "source": "student"
+        }
+      ],
+      "step_order": [
+        "S1C1",
+        "S2C1",
+        "S3C1",
+        "S4C1"
+      ]
+    },
+    "verification_results": [
+      {
+        "claim_id": "S1C1",
+        "verdict": "valid",
+        "derivation_depth": 1,
+        "error_type": null,
+        "error_details": "",
+        "used_facts": [],
+        "proof_trace": [],
+        "root_cause_claim": null
+      },
+      {
+        "claim_id": "S2C1",
+        "verdict": "valid",
+        "derivation_depth": 1,
+        "error_type": null,
+        "error_details": "",
+        "used_facts": [],
+        "proof_trace": [],
+        "root_cause_claim": null
+      },
+      {
+        "claim_id": "S3C1",
+        "verdict": "valid",
+        "derivation_depth": 1,
+        "error_type": null,
+        "error_details": "",
+        "used_facts": [],
+        "proof_trace": [],
+        "root_cause_claim": null
+      },
+      {
+        "claim_id": "S4C1",
+        "verdict": "valid",
+        "derivation_depth": 1,
+        "error_type": null,
+        "error_details": "",
+        "used_facts": [],
+        "proof_trace": [],
+        "root_cause_claim": null
+      }
+    ],
+    "score": {
+      "total_points": 100,
+      "valid_claims": 4,
+      "invalid_claims": 0,
+      "cascading_errors": 0,
+      "deductions": [],
+      "summary": "4/4 claims verified successfully"
+    }
+  }
+}

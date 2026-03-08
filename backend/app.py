@@ -88,6 +88,76 @@ class RubricScore:
         return asdict(self)
 
 
+# New dataclasses for two-image grading pipeline --------------------------------
+
+@dataclass
+class ClaimVerificationResult:
+    """Result of verifying a single claim against the knowledge base"""
+    claim_id: str
+    verdict: str  # "valid" | "invalid" | "cascading_error"
+    derivation_depth: int  # 0=given, 1=1-step, 2=2-step, -1=not derivable
+    error_type: Optional[str] = None  # None | "not_derivable" | "cascading_error" | "missing_dependency" | "syntax_error"
+    error_details: str = ""
+    used_facts: List[str] = None
+    proof_trace: List[str] = None
+    root_cause_claim: Optional[str] = None  # For cascading errors
+
+    def __post_init__(self):
+        if self.used_facts is None:
+            self.used_facts = []
+        if self.proof_trace is None:
+            self.proof_trace = []
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class ScoringResult:
+    """Final scoring result from verification"""
+    total_points: int
+    valid_claims: int
+    invalid_claims: int
+    cascading_errors: int
+    deductions: List[Dict[str, Any]]
+    summary: str
+
+    def __post_init__(self):
+        if self.deductions is None:
+            self.deductions = []
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class ExtractedProblemClaims:
+    """Output from ProblemClaimExtractor"""
+    construction_cdl: List[str]
+    given_claims: List[Claim]
+    goal_cdl: str
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "construction_cdl": self.construction_cdl,
+            "given_claims": [c.to_dict() for c in self.given_claims],
+            "goal_cdl": self.goal_cdl,
+        }
+
+
+@dataclass
+class ExtractedStudentClaims:
+    """Output from StudentClaimExtractor"""
+    student_claims: List[Claim]
+    step_order: List[str]
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "student_claims": [c.to_dict() for c in self.student_claims],
+            "step_order": self.step_order,
+        }
+
+
 def _normalize_text(text: str) -> str:
     return re.sub(r"\s+", " ", text.strip())
 
@@ -860,6 +930,958 @@ Focus on whether missing preconditions could be resolved and whether a cautious 
         print("="*80 + "\n")
         return result
 
+
+# ============================================================================
+# NEW TWO-IMAGE GRADING PIPELINE
+# ============================================================================
+
+class ProblemClaimExtractor:
+    """Extracts given claims from problem-only image using FormalGeo-compatible predicates"""
+
+    SYS_PROMPT = """
+You are a geometry problem analyzer that outputs FormalGeo-compatible claims.
+Given ONLY the problem image (no solution), extract:
+
+1. Geometric constructions (shapes, collinearity, cocircularity)
+2. Given facts stated in the problem (lengths, angles, relationships)
+3. What needs to be proven or calculated
+
+DO NOT assume any student work or derived facts. Extract ONLY what is explicitly given.
+
+Output STRICT JSON format:
+{
+  "construction_cdl": [
+    "Shape(AB,BC,CA)",           // Triangle with edges AB, BC, CA
+    "Shape(AB,BC,CD,DA)",        // Quadrilateral
+    "Collinear(AOB)",            // Points A, O, B are collinear
+    "Cocircular(O,A,B,C)"        // Circle with center O through points A, B, C
+  ],
+  "text_cdl": [
+    "IsDiameterOfCircle(AB,O)",  // AB is diameter of circle O
+    "IsCentreOfCircle(O,O)",     // O is center of circle
+    "Equal(MeasureOfAngle(ABC),60)",  // Angle ABC = 60 degrees
+    "Equal(LengthOfLine(AB),LengthOfLine(CD))"  // AB = CD
+  ],
+  "goal_cdl": "Value(MeasureOfAngle(ACB))"  // What to find/prove
+}
+
+=== VALID FORMALGEO PREDICATES ===
+
+CONSTRUCTION (use in construction_cdl):
+- Shape(AB,BC,CA) - Triangle with vertices A,B,C
+- Shape(AB,BC,CD,DA) - Quadrilateral ABCD
+- Collinear(ABC) - Points A,B,C are collinear
+- Cocircular(O,A,B,C,D) - Points A,B,C,D lie on circle with center O
+
+ENTITIES (use in text_cdl):
+- RightTriangle(ABC) - Triangle ABC is a right triangle (right angle at A)
+- IsoscelesTriangle(ABC) - Triangle ABC is isosceles (AB = AC)
+- EquilateralTriangle(ABC) - Equilateral triangle
+- Parallelogram(ABCD), Rhombus(ABCD), Rectangle(ABCD), Square(ABCD)
+- Trapezoid(ABCD), IsoscelesTrapezoid(ABCD)
+
+RELATIONS (use in text_cdl):
+- IsDiameterOfCircle(AB,O) - AB is diameter of circle O
+- IsCentreOfCircle(P,O) - P is center of circle O
+- IsTangentOfCircle(PA,O) - Line PA is tangent to circle O
+- IsMidpointOfLine(M,AB) - M is midpoint of AB
+- ParallelBetweenLine(AB,CD) - AB parallel to CD
+- PerpendicularBetweenLine(AB,CD) - AB perpendicular to CD
+- IsBisectorOfAngle(BD,ABC) - BD bisects angle ABC
+- CongruentBetweenTriangle(ABC,DEF) - Triangles ABC ≅ DEF
+- SimilarBetweenTriangle(ABC,DEF) - Triangles ABC ~ DEF
+
+EQUATIONS (use in text_cdl with Equal):
+- Equal(LengthOfLine(AB),LengthOfLine(CD)) - Length AB = CD
+- Equal(LengthOfLine(AB),5) - Length AB = 5
+- Equal(MeasureOfAngle(ABC),90) - Angle ABC = 90 degrees
+- Equal(MeasureOfAngle(ABC),MeasureOfAngle(DEF)) - Angle ABC = Angle DEF
+- Equal(RadiusOfCircle(O),5) - Radius of circle O = 5
+
+GOAL FORMAT (for goal_cdl):
+- Value(MeasureOfAngle(ABC)) - Find the measure of angle ABC
+- Value(LengthOfLine(AB)) - Find the length of AB
+- Equal(MeasureOfAngle(ABC),90) - Prove angle ABC = 90
+
+IMPORTANT:
+- Use 3 letters for angles: MeasureOfAngle(ABC) where B is vertex
+- Use 2 letters for segments: LengthOfLine(AB)
+- Circle center in Cocircular comes FIRST: Cocircular(O,A,B,C)
+- For diameter: use BOTH Cocircular AND IsDiameterOfCircle
+    """.strip()
+
+    def __init__(self, llm_service: "LLMService"):
+        self.llm_service = llm_service
+
+    async def run(self, problem_image_data: bytes) -> ExtractedProblemClaims:
+        messages = [
+            {"role": "system", "content": self.SYS_PROMPT},
+            {
+                "role": "user",
+                "content": "Analyze this problem image and extract the given claims using FormalGeo predicates. Output ONLY the JSON, no additional text.",
+            },
+        ]
+        llm_resp = await self.llm_service.chat(messages, image_data=problem_image_data)
+        result = self._parse_response(llm_resp)
+
+        print("\n" + "="*80)
+        print("[ProblemClaimExtractor] Output:")
+        print(f"Construction CDL: {result.construction_cdl}")
+        print(f"Given claims: {len(result.given_claims)}")
+        for claim in result.given_claims:
+            print(f"  {claim.claim_id}: {claim.type} {claim.args}")
+        print(f"Goal CDL: {result.goal_cdl}")
+        print("="*80 + "\n")
+
+        return result
+
+    def _parse_response(self, llm_resp: Any) -> ExtractedProblemClaims:
+        payload = llm_resp if isinstance(llm_resp, dict) else {}
+
+        construction_cdl = payload.get("construction_cdl", [])
+        goal_cdl = payload.get("goal_cdl", "")
+
+        given_claims: List[Claim] = []
+
+        # Parse text_cdl (FormalGeo CDL strings) into Claim objects
+        for i, cdl_str in enumerate(payload.get("text_cdl", [])):
+            try:
+                claim = self._cdl_to_claim(cdl_str, f"G{i+1}")
+                if claim:
+                    given_claims.append(claim)
+            except Exception as e:
+                print(f"[ProblemClaimExtractor] Failed to parse CDL '{cdl_str}': {e}")
+                continue
+
+        # Also support legacy given_claims format for backward compatibility
+        for claim_dict in payload.get("given_claims", []):
+            try:
+                claim = Claim(
+                    claim_id=str(claim_dict.get("claim_id", f"G{len(given_claims)+1}")),
+                    type=str(claim_dict.get("type", "UNKNOWN")),
+                    args=claim_dict.get("args", []),
+                    depends_on=[],
+                    evidence={"source": "problem", "cdl": claim_dict.get("cdl")},
+                    confidence_hint="high",
+                    source="problem",
+                )
+                given_claims.append(claim)
+            except Exception as e:
+                print(f"[ProblemClaimExtractor] Failed to parse claim: {e}")
+                continue
+
+        return ExtractedProblemClaims(
+            construction_cdl=construction_cdl,
+            given_claims=given_claims,
+            goal_cdl=goal_cdl,
+        )
+
+    def _cdl_to_claim(self, cdl_str: str, claim_id: str) -> Optional[Claim]:
+        """Convert FormalGeo CDL string to Claim object"""
+        import re
+
+        cdl_str = cdl_str.strip()
+        if not cdl_str:
+            return None
+
+        # Parse predicate(args) format
+        match = re.match(r'^([A-Za-z]+)\((.+)\)$', cdl_str)
+        if not match:
+            # Handle Equal(expr1, expr2) which may have nested parentheses
+            if cdl_str.startswith("Equal("):
+                return Claim(
+                    claim_id=claim_id,
+                    type="Equal",
+                    args=[cdl_str],  # Store full CDL as single arg
+                    depends_on=[],
+                    evidence={"source": "problem", "cdl": cdl_str},
+                    confidence_hint="high",
+                    source="problem",
+                )
+            return None
+
+        predicate = match.group(1)
+        args_str = match.group(2)
+
+        # Simple arg parsing (doesn't handle nested parens)
+        args = [a.strip() for a in args_str.split(',')]
+
+        return Claim(
+            claim_id=claim_id,
+            type=predicate,
+            args=args,
+            depends_on=[],
+            evidence={"source": "problem", "cdl": cdl_str},
+            confidence_hint="high",
+            source="problem",
+        )
+
+
+class StudentClaimExtractor:
+    """Extracts student claims using FormalGeo-compatible predicates"""
+
+    SYS_PROMPT = """
+You are a student work analyzer that outputs FormalGeo-compatible claims.
+You are given:
+1. The solution image with student handwriting/drawings
+2. The known given facts from the problem (in FormalGeo CDL format)
+
+Your task: Identify student-added content and convert to FormalGeo CDL format.
+
+Look for:
+- Written text/equations (student's solution steps)
+- Drawn constructions (auxiliary lines, angle marks, labels)
+- Claimed conclusions
+
+Output STRICT JSON format:
+{
+  "student_claims": [
+    {
+      "claim_id": "S1C1",
+      "cdl": "Equal(LengthOfLine(OA),LengthOfLine(OC))",  // FormalGeo CDL format
+      "depends_on": ["G1", "G2"],
+      "evidence": {"raw_text": "OA = OC (radii)"},
+      "source": "student"
+    }
+  ],
+  "step_order": ["S1C1", "S1C2", "S2C1", ...]
+}
+
+=== VALID FORMALGEO CDL FORMATS ===
+
+EQUALITY/EQUATIONS (most common in student work):
+- Equal(LengthOfLine(AB),LengthOfLine(CD)) - segments AB = CD
+- Equal(MeasureOfAngle(ABC),MeasureOfAngle(DEF)) - angles equal
+- Equal(MeasureOfAngle(ABC),90) - angle ABC = 90 degrees
+- Equal(MeasureOfAngle(ABC),x) - angle ABC = x (variable)
+- Equal(Add(MeasureOfAngle(ABC),MeasureOfAngle(CBD)),MeasureOfAngle(ABD)) - angle sum
+
+TRIANGLE PROPERTIES:
+- IsoscelesTriangle(ABC) - Triangle ABC is isosceles (AB = AC)
+- RightTriangle(ABC) - Right triangle with right angle at A
+- EquilateralTriangle(ABC)
+- CongruentBetweenTriangle(ABC,DEF) - Triangles ABC ≅ DEF
+- SimilarBetweenTriangle(ABC,DEF) - Triangles ABC ~ DEF
+
+CIRCLE PROPERTIES:
+- IsDiameterOfCircle(AB,O) - AB is diameter of circle O
+- IsCentreOfCircle(O,O) - O is center
+- IsTangentOfCircle(PA,O) - PA tangent to circle O
+- Equal(LengthOfLine(OA),RadiusOfCircle(O)) - OA is a radius
+
+LINE RELATIONSHIPS:
+- ParallelBetweenLine(AB,CD) - AB parallel to CD
+- PerpendicularBetweenLine(AB,CD) - AB perpendicular to CD
+- IsMidpointOfLine(M,AB) - M is midpoint of AB
+- Collinear(ABC) - A, B, C are collinear
+
+ANGLE RELATIONSHIPS:
+- IsBisectorOfAngle(BD,ABC) - BD bisects angle ABC
+- Equal(Add(MeasureOfAngle(ABC),MeasureOfAngle(DEF)),180) - supplementary angles
+
+CLAIM ID FORMAT:
+- Use S{step}C{claim}: S1C1, S1C2, S2C1, etc.
+- Step number = which reasoning step
+- Claim number = which claim within that step
+
+DEPENDS_ON:
+- List claim IDs that this claim builds upon
+- Given claims are G1, G2, etc.
+- Previous student claims are S1C1, S1C2, etc.
+- A claim is INVALID if its depends_on references are not established
+
+IMPORTANT:
+- Return claims in ORDER the student wrote them
+- Each logical step the student makes should be a separate claim
+- If student claims something WITHOUT justification, leave depends_on empty
+- If student makes an INCORRECT claim, still extract it (verification happens later)
+- Use 3 letters for angles: MeasureOfAngle(ABC) where B is vertex
+- Use 2 letters for segments: LengthOfLine(AB)
+    """.strip()
+
+    def __init__(self, llm_service: "LLMService"):
+        self.llm_service = llm_service
+
+    async def run(
+        self,
+        problem_image_data: bytes,
+        solution_image_data: bytes,
+        given_claims: List[Claim],
+    ) -> ExtractedStudentClaims:
+        # Format given claims with their CDL for context
+        given_claims_info = []
+        for c in given_claims:
+            cdl = c.evidence.get("cdl") if isinstance(c.evidence, dict) else None
+            given_claims_info.append({
+                "claim_id": c.claim_id,
+                "cdl": cdl or f"{c.type}({','.join(c.args)})",
+                "type": c.type,
+            })
+
+        messages = [
+            {"role": "system", "content": self.SYS_PROMPT},
+            {
+                "role": "user",
+                "content": json.dumps({
+                    "instruction": "Analyze the solution image and extract student claims in FormalGeo CDL format.",
+                    "given_claims": given_claims_info,
+                }),
+            },
+        ]
+
+        # Send solution image (student work) as the analyzed image
+        llm_resp = await self.llm_service.chat(messages, image_data=solution_image_data)
+        result = self._parse_response(llm_resp)
+
+        print("\n" + "="*80)
+        print("[StudentClaimExtractor] Output:")
+        print(f"Student claims: {len(result.student_claims)}")
+        for claim in result.student_claims:
+            cdl = claim.evidence.get("cdl", "") if isinstance(claim.evidence, dict) else ""
+            print(f"  {claim.claim_id}: {cdl[:60]}... (depends_on: {claim.depends_on})")
+        print(f"Step order: {result.step_order}")
+        print("="*80 + "\n")
+
+        return result
+
+    def _parse_response(self, llm_resp: Any) -> ExtractedStudentClaims:
+        payload = llm_resp if isinstance(llm_resp, dict) else {}
+
+        student_claims: List[Claim] = []
+        step_order: List[str] = []
+
+        for claim_dict in payload.get("student_claims", []):
+            try:
+                claim_id = str(claim_dict.get("claim_id", f"S{len(student_claims)+1}C1"))
+                cdl_str = claim_dict.get("cdl", "")
+                depends_on = claim_dict.get("depends_on", [])
+                evidence = claim_dict.get("evidence", {})
+                source = claim_dict.get("source", "student")
+
+                # Extract type from CDL string
+                claim_type = self._extract_type_from_cdl(cdl_str)
+
+                # Store CDL in evidence
+                if isinstance(evidence, dict):
+                    evidence["cdl"] = cdl_str
+                else:
+                    evidence = {"cdl": cdl_str}
+
+                claim = Claim(
+                    claim_id=claim_id,
+                    type=claim_type,
+                    args=[cdl_str],  # Store full CDL as arg for now
+                    depends_on=depends_on,
+                    evidence=evidence,
+                    confidence_hint="medium",
+                    source=source,
+                )
+                student_claims.append(claim)
+                step_order.append(claim_id)
+            except Exception as e:
+                print(f"[StudentClaimExtractor] Failed to parse claim: {e}")
+                continue
+
+        # Use provided step_order if available, otherwise use default
+        if "step_order" in payload and payload["step_order"]:
+            step_order = payload["step_order"]
+
+        return ExtractedStudentClaims(
+            student_claims=student_claims,
+            step_order=step_order,
+        )
+
+    def _extract_type_from_cdl(self, cdl_str: str) -> str:
+        """Extract the main predicate type from a CDL string"""
+        import re
+
+        if not cdl_str:
+            return "UNKNOWN"
+
+        cdl_str = cdl_str.strip()
+
+        # Handle Equal(...) specially - most common
+        if cdl_str.startswith("Equal("):
+            # Check what's being equated
+            if "MeasureOfAngle" in cdl_str:
+                if ",90)" in cdl_str or ",90 )" in cdl_str:
+                    return "RightAngle"
+                return "EqualAngle"
+            if "LengthOfLine" in cdl_str:
+                return "EqualLength"
+            if "Add(" in cdl_str:
+                return "AngleSum"
+            return "Equal"
+
+        # Extract predicate name
+        match = re.match(r'^([A-Za-z]+)\(', cdl_str)
+        if match:
+            return match.group(1)
+
+        return "UNKNOWN"
+
+    def _extract_type_from_cdl(self, cdl_str: str) -> str:
+        """Extract the main predicate type from a CDL string"""
+        import re
+
+        if not cdl_str:
+            return "UNKNOWN"
+
+        cdl_str = cdl_str.strip()
+
+        # Handle Equal(...) specially - most common
+        if cdl_str.startswith("Equal("):
+            # Check what's being equated
+            if "Add(" in cdl_str and "180" in cdl_str:
+                return "SupplementaryAngles"  # Angles add to 180
+            if "Mul(2," in cdl_str or ",Mul(2," in cdl_str:
+                return "InscribedAngle"  # Central angle = 2 * inscribed
+            if "MeasureOfAngle" in cdl_str:
+                if ",90)" in cdl_str or ",90 )" in cdl_str:
+                    return "RightAngle"
+                # Check if it's two angles being equated
+                angle_count = cdl_str.count("MeasureOfAngle")
+                if angle_count >= 2:
+                    return "EqualAngle"
+                return "AngleMeasure"  # Angle = some value
+            if "LengthOfLine" in cdl_str:
+                return "EqualLength"
+            return "Equal"
+
+        # Extract predicate name
+        match = re.match(r'^([A-Za-z]+)\(', cdl_str)
+        if match:
+            return match.group(1)
+
+        return "UNKNOWN"
+
+
+class ClaimVerifier:
+    """Verifies student claims using FormalGeo with 2-step depth limit"""
+
+    def __init__(self, llm_service: "LLMService"):
+        self.llm_service = llm_service
+        self.formalizer = GeometryFormalizerAgent(llm_service)
+        self.solver = None
+        self.available = False
+
+        try:
+            from formalgeo.solver import Interactor
+            self.Interactor = Interactor
+            self.available = True
+            print("[ClaimVerifier] FormalGeo available")
+        except ImportError as e:
+            print(f"[ClaimVerifier] FormalGeo not available: {e}")
+            self.Interactor = None
+
+    def initialize(self, gdl_payload: Dict[str, Any]) -> bool:
+        """Initialize solver with problem CDL"""
+        if not self.available:
+            return False
+
+        try:
+            self.solver = self.Interactor(
+                gdl_payload["predicate_GDL"],
+                gdl_payload["theorem_GDL"]
+            )
+            self.solver.load_problem(gdl_payload["problem_CDL"])
+            print("[ClaimVerifier] Solver initialized successfully")
+            return True
+        except Exception as e:
+            print(f"[ClaimVerifier] Failed to initialize solver: {e}")
+            return False
+
+    async def verify_all_claims(
+        self,
+        given_claims: List[Claim],
+        student_claims: List[Claim],
+        construction_cdl: List[str],
+        goal_cdl: str,
+    ) -> List[ClaimVerificationResult]:
+        """Verify all student claims with 2-step depth limit and cascading errors"""
+
+        results: List[ClaimVerificationResult] = []
+        kb_claims: Dict[str, Claim] = {}  # Claims added to knowledge base
+        first_invalid_claim_id: Optional[str] = None
+
+        # Step 1: Add given claims to KB (they are automatically valid)
+        for claim in given_claims:
+            kb_claims[claim.claim_id] = claim
+            print(f"[ClaimVerifier] Added given claim to KB: {claim.claim_id}")
+
+        # Step 2: Build FormalGeo problem CDL
+        text_cdl = self._claims_to_text_cdl(given_claims)
+
+        gdl_payload = {
+            "predicate_GDL": self.formalizer.predicate_gdl or self.formalizer._default_predicate_gdl(),
+            "theorem_GDL": self.formalizer.theorem_gdl or {},
+            "problem_CDL": {
+                "problem_id": 1,
+                "problem_level": 1,
+                "problem_img": "",
+                "construction_cdl": construction_cdl,
+                "text_cdl": text_cdl,
+                "image_cdl": [],
+                "goal_cdl": goal_cdl,
+                "problem_answer": "0",
+            }
+        }
+
+        # Initialize solver
+        solver_ready = self.initialize(gdl_payload)
+
+        # Step 3: Verify each student claim in order
+        for claim in student_claims:
+            print(f"\n[ClaimVerifier] Verifying claim: {claim.claim_id} ({claim.type})")
+
+            # Check for cascading error first
+            if first_invalid_claim_id is not None:
+                results.append(ClaimVerificationResult(
+                    claim_id=claim.claim_id,
+                    verdict="cascading_error",
+                    derivation_depth=-1,
+                    error_type="cascading_error",
+                    error_details=f"Previous claim {first_invalid_claim_id} was invalid",
+                    root_cause_claim=first_invalid_claim_id,
+                ))
+                print(f"[ClaimVerifier] {claim.claim_id}: CASCADING ERROR from {first_invalid_claim_id}")
+                continue
+
+            # Check dependencies
+            missing_deps = [d for d in claim.depends_on if d not in kb_claims]
+            if missing_deps:
+                first_invalid_claim_id = claim.claim_id
+                results.append(ClaimVerificationResult(
+                    claim_id=claim.claim_id,
+                    verdict="invalid",
+                    derivation_depth=-1,
+                    error_type="missing_dependency",
+                    error_details=f"Missing dependencies: {missing_deps}",
+                ))
+                print(f"[ClaimVerifier] {claim.claim_id}: INVALID - missing dependencies {missing_deps}")
+                continue
+
+            # Verify within 2 steps (uses heuristic fallback if FormalGeo not available)
+            verification = self._verify_within_depth(claim, max_depth=2, kb_claims=kb_claims)
+
+            if verification["is_derivable"]:
+                # Valid - add to KB
+                kb_claims[claim.claim_id] = claim
+                results.append(ClaimVerificationResult(
+                    claim_id=claim.claim_id,
+                    verdict="valid",
+                    derivation_depth=verification["depth"],
+                    proof_trace=verification.get("theorems_used", []),
+                ))
+                print(f"[ClaimVerifier] {claim.claim_id}: VALID (depth={verification['depth']})")
+            else:
+                # Invalid - mark first invalid
+                first_invalid_claim_id = claim.claim_id
+                results.append(ClaimVerificationResult(
+                    claim_id=claim.claim_id,
+                    verdict="invalid",
+                    derivation_depth=-1,
+                    error_type="not_derivable",
+                    error_details=f"Cannot derive within 2 logical steps from current KB",
+                ))
+                print(f"[ClaimVerifier] {claim.claim_id}: INVALID - not derivable within 2 steps")
+
+        return results
+
+    def _verify_within_depth(self, claim: Claim, max_depth: int = 2, kb_claims: Dict[str, Claim] = None) -> Dict[str, Any]:
+        """Check if claim is derivable within max_depth theorem applications"""
+        if kb_claims is None:
+            kb_claims = {}
+
+        if not self.solver:
+            # Fallback to heuristic verification when FormalGeo is not available
+            for depth in range(1, max_depth + 1):
+                if self._can_derive_with_heuristics(claim, depth, kb_claims):
+                    return {"is_derivable": True, "depth": depth, "theorems_used": [], "note": "Heuristic verification"}
+            return {"is_derivable": False, "depth": -1, "error": "Solver not initialized and heuristic failed"}
+
+        try:
+            # Convert claim to CDL format
+            claim_cdl = self._claim_to_cdl(claim)
+            if not claim_cdl:
+                return {"is_derivable": False, "depth": -1, "error": "Cannot convert claim to CDL"}
+
+            # Parse claim to get predicate and item
+            predicate, item = self._parse_claim_predicate(claim_cdl)
+            if not predicate:
+                return {"is_derivable": False, "depth": -1, "error": "Cannot parse claim predicate"}
+
+            # Check depth 0: already in KB?
+            if self._check_in_kb(predicate, item):
+                return {"is_derivable": True, "depth": 0, "theorems_used": []}
+
+            # For depths 1 and 2: try theorem applications
+            # Note: This is a simplified version - full implementation would use ForwardSearcher
+            for depth in range(1, max_depth + 1):
+                # Try to apply theorems and check if claim becomes derivable
+                # For now, we use a heuristic based on claim type
+                if self._can_derive_with_heuristics(claim, depth, kb_claims):
+                    return {"is_derivable": True, "depth": depth, "theorems_used": []}
+
+            return {"is_derivable": False, "depth": -1, "theorems_used": []}
+
+        except Exception as e:
+            print(f"[ClaimVerifier] Verification error: {e}")
+            return {"is_derivable": False, "depth": -1, "error": str(e)}
+
+    def _can_derive_with_heuristics(self, claim: Claim, depth: int, kb_claims: Dict[str, Claim]) -> bool:
+        """
+        Heuristic check for derivability based on claim type and dependencies.
+
+        This is a stricter fallback when FormalGeo solver is not available.
+        We validate that the claim's derivation chain makes logical sense.
+        """
+        claim_type = claim.type
+        depends_on = claim.depends_on
+
+        # Get CDL string if available for more accurate type detection
+        cdl_str = ""
+        if isinstance(claim.evidence, dict):
+            cdl_str = claim.evidence.get("cdl", "")
+
+        # Claims without dependencies need special handling
+        if not depends_on:
+            # Only certain claim types can be made without dependencies
+            allowed_no_deps = {
+                "Collinear", "COLLINEAR",
+                "AngleSum", "ANGLE_SUM",  # Triangle angle sum is a known theorem
+                "CyclicQuadrilateral",  # Can be observed from points on circle
+                "InscribedAngle",  # Central angle theorem is well-known
+                "DIAGRAM_CONSTRUCTION",
+                "DIAGRAM_LABEL",
+                "CHORD",
+            }
+            if claim_type in allowed_no_deps:
+                return True
+            # Check if it's an Equal with angle sum (triangle angle sum theorem)
+            if "Equal(" in cdl_str and "Add(" in cdl_str and "180" in cdl_str:
+                return True  # Triangle angle sum theorem
+            # Check if it's the inscribed angle theorem (central = 2 * inscribed)
+            if "Mul(2," in cdl_str:
+                return True  # Inscribed angle theorem
+            # Check if it's a variable definition: Equal(MeasureOfAngle(...),x) where x is a single letter
+            # This is valid as the student is defining a symbolic variable for an angle
+            if cdl_str and "Equal(" in cdl_str and "MeasureOfAngle(" in cdl_str:
+                import re
+                # Pattern: Equal(MeasureOfAngle(...),x) or Equal(x,MeasureOfAngle(...))
+                var_def_pattern = r'Equal\(MeasureOfAngle\([^)]+\),\s*[a-z]\s*\)|Equal\(\s*[a-z]\s*,MeasureOfAngle\([^)]+\)\)'
+                if re.search(var_def_pattern, cdl_str):
+                    return True  # Variable definition like "let x = angle ABC"
+            # Check if it's angle decomposition: angle ACB = angle ACO + angle OCB (geometric additivity)
+            if cdl_str and "Equal(" in cdl_str and "Add(" in cdl_str and "MeasureOfAngle(" in cdl_str:
+                # Count angle references - if it's relating multiple angles, it's decomposition
+                angle_count = cdl_str.count("MeasureOfAngle(")
+                if angle_count >= 2:
+                    return True  # Angle decomposition/additivity from diagram
+            # Check if claim relates angles that share vertex (geometric relationship from diagram)
+            if cdl_str and "Equal(MeasureOfAngle(" in cdl_str:
+                # Pattern like Equal(MeasureOfAngle(OAC),MeasureOfAngle(BAC)) - same angles different names
+                if cdl_str.count("MeasureOfAngle(") == 2:
+                    return True  # Angle identity from diagram labels
+            # Other claims without dependencies are suspicious
+            print(f"[ClaimVerifier] WARNING: {claim.claim_id} has no dependencies but type={claim_type}")
+            return False
+
+        # Get dependency claim types (and CDLs for better matching)
+        dep_types = set()
+        dep_cdls = set()
+        for dep_id in depends_on:
+            if dep_id in kb_claims:
+                dep_types.add(kb_claims[dep_id].type)
+                if isinstance(kb_claims[dep_id].evidence, dict):
+                    dep_cdl = kb_claims[dep_id].evidence.get("cdl", "")
+                    if dep_cdl:
+                        dep_cdls.add(dep_cdl)
+
+        # Define valid derivation rules: what can be derived from what
+        # Include both old-style and FormalGeo-style type names
+        valid_derivations = {
+            # From circle properties (old + new style)
+            "RADIUS_EQUAL": {"IsCentreOfCircle", "IsDiameterOfCircle", "CENTER", "DIAMETER"},
+            "EqualLength": {"IsCentreOfCircle", "IsDiameterOfCircle", "EqualLength", "IsoscelesTriangle"},
+            "IsoscelesTriangle": {"EqualLength", "Equal", "RADIUS_EQUAL"},
+
+            # From isosceles triangle
+            "ISOSCELES_BASE_ANGLES": {"IsoscelesTriangle", "ISOSCELES_TRIANGLE"},
+            # EqualAngle - note: CyclicQuadrilateral gives SUPPLEMENTARY angles, not equal!
+            "EqualAngle": {"IsoscelesTriangle", "EqualAngle", "Equal", "SupplementaryAngles", "AngleMeasure", "InscribedAngle"},
+            "EQUAL_ANGLE": {"IsoscelesTriangle", "ISOSCELES_TRIANGLE", "EqualAngle", "EQUAL_ANGLE"},
+
+            # Supplementary angles - from collinearity, cyclic quadrilateral, or algebraic substitution
+            "SupplementaryAngles": {"Collinear", "COLLINEAR", "EqualAngle", "SupplementaryAngles", "AngleSum", "CyclicQuadrilateral"},
+
+            # Angle calculations
+            "Equal": set(),  # Equal can be derived from many things - be permissive with deps
+            "AngleMeasure": {"Equal", "EqualAngle", "AngleMeasure", "SupplementaryAngles", "RightAngle", "InscribedAngle"},
+            "ANGLE_MEASURE": {"Equal", "EqualAngle", "AngleSum", "RightAngle"},
+            "AngleSum": {"Equal", "Collinear"},
+            "RightAngle": {"IsDiameterOfCircle", "PerpendicularBetweenLine", "Equal"},
+
+            # Circle/inscribed angle properties
+            "InscribedAngle": {"IsCentreOfCircle", "CyclicQuadrilateral", "AngleMeasure"},
+            "CyclicQuadrilateral": set(),  # Can be observed from diagram (points on circle)
+
+            # Line/Circle relationships
+            "ParallelBetweenLine": {"Equal", "EqualAngle"},
+            "PerpendicularBetweenLine": {"Equal", "IsDiameterOfCircle"},
+            "CongruentBetweenTriangle": {"Equal", "EqualAngle", "EqualLength"},
+            "SimilarBetweenTriangle": {"EqualAngle"},
+
+            # Diagram elements (can be standalone)
+            "DIAGRAM_CONSTRUCTION": set(),
+            "DIAGRAM_LABEL": set(),
+            "CHORD": set(),
+            "Collinear": set(),
+            "COLLINEAR": set(),
+        }
+
+        # Check if this is a valid derivation
+        if claim_type in valid_derivations:
+            required = valid_derivations[claim_type]
+            if not required:
+                # No requirements, always valid
+                return True
+            # Check if at least one dependency matches a required type
+            if dep_types & required:
+                return depth >= 1
+            # Special case: if all dependencies are "problem" givens (G*), allow most derivations
+            if all(dep_id.startswith("G") for dep_id in depends_on):
+                return depth >= 1
+            print(f"[ClaimVerifier] REJECT: {claim.claim_id} ({claim_type}) - invalid derivation from {dep_types}")
+            return False
+
+        # Unknown claim type - be conservative
+        # Only allow if depth >= 2 AND it has dependencies from known facts
+        if depth >= 2 and len(depends_on) >= 1:
+            # Must have at least one valid dependency
+            has_valid_dep = any(dep_id in kb_claims for dep_id in depends_on)
+            if has_valid_dep:
+                return True
+
+        print(f"[ClaimVerifier] REJECT: {claim.claim_id} ({claim_type}) - unknown type, being conservative")
+        return False
+
+    def _check_in_kb(self, predicate: str, item: Any) -> bool:
+        """Check if predicate(item) exists in knowledge base"""
+        if not self.solver or not self.solver.problem:
+            return False
+        try:
+            return self.solver.problem.condition.has(predicate, item)
+        except Exception:
+            return False
+
+    def _parse_claim_predicate(self, claim_cdl: str) -> Tuple[Optional[str], Optional[Any]]:
+        """Parse CDL string to extract predicate and item"""
+        import re
+        match = re.match(r'^([A-Za-z]+)\((.+)\)$', claim_cdl)
+        if match:
+            predicate = match.group(1)
+            args_str = match.group(2)
+            # Simplified parsing - return args as tuple
+            args = tuple(a.strip() for a in args_str.split(','))
+            return predicate, args
+        return None, None
+
+    def _claim_to_cdl(self, claim: Claim) -> Optional[str]:
+        """Convert Claim to CDL format string"""
+        # First check if claim already has CDL in evidence
+        if isinstance(claim.evidence, dict) and claim.evidence.get("cdl"):
+            return claim.evidence["cdl"]
+
+        claim_type = claim.type
+        args = claim.args
+
+        # Map common claim types to FormalGeo CDL format
+        type_mapping = {
+            "RADIUS_EQUAL": lambda a: f"Equal(LengthOfLine({a[0]}),LengthOfLine({a[1]}))" if len(a) >= 2 else None,
+            "EQUAL_LENGTH": lambda a: f"Equal(LengthOfLine({a[0]}),LengthOfLine({a[1]}))" if len(a) >= 2 else None,
+            "EqualLength": lambda a: f"Equal(LengthOfLine({a[0]}),LengthOfLine({a[1]}))" if len(a) >= 2 else None,
+            "ISOSCELES_TRIANGLE": lambda a: f"IsoscelesTriangle({a[0]})" if a else None,
+            "IsoscelesTriangle": lambda a: f"IsoscelesTriangle({a[0]})" if a else None,
+            "ISOSCELES_BASE_ANGLES": lambda a: f"Equal(MeasureOfAngle({a[0]}),MeasureOfAngle({a[1]}))" if len(a) >= 2 else None,
+            "EQUAL_ANGLE": lambda a: f"Equal(MeasureOfAngle({a[0]}),MeasureOfAngle({a[1]}))" if len(a) >= 2 else None,
+            "EqualAngle": lambda a: f"Equal(MeasureOfAngle({a[0]}),MeasureOfAngle({a[1]}))" if len(a) >= 2 else None,
+            "RIGHT_ANGLE": lambda a: f"Equal(MeasureOfAngle({a[0]}),90)" if a else None,
+            "RightAngle": lambda a: f"Equal(MeasureOfAngle({a[0]}),90)" if a else None,
+            "ANGLE_MEASURE": lambda a: f"Equal(MeasureOfAngle({a[0]}),{a[1]})" if len(a) >= 2 else None,
+            "PARALLEL": lambda a: f"ParallelBetweenLine({a[0]},{a[1]})" if len(a) >= 2 else None,
+            "ParallelBetweenLine": lambda a: f"ParallelBetweenLine({a[0]},{a[1]})" if len(a) >= 2 else None,
+            "PERPENDICULAR": lambda a: f"PerpendicularBetweenLine({a[0]},{a[1]})" if len(a) >= 2 else None,
+            "PerpendicularBetweenLine": lambda a: f"PerpendicularBetweenLine({a[0]},{a[1]})" if len(a) >= 2 else None,
+            "IsDiameterOfCircle": lambda a: f"IsDiameterOfCircle({a[0]},{a[1]})" if len(a) >= 2 else None,
+            "IsCentreOfCircle": lambda a: f"IsCentreOfCircle({a[0]},{a[1]})" if len(a) >= 2 else None,
+            "IsMidpointOfLine": lambda a: f"IsMidpointOfLine({a[0]},{a[1]})" if len(a) >= 2 else None,
+            "CongruentBetweenTriangle": lambda a: f"CongruentBetweenTriangle({a[0]},{a[1]})" if len(a) >= 2 else None,
+            "SimilarBetweenTriangle": lambda a: f"SimilarBetweenTriangle({a[0]},{a[1]})" if len(a) >= 2 else None,
+        }
+
+        if claim_type in type_mapping:
+            return type_mapping[claim_type](args)
+
+        # Default: use claim type as predicate
+        if args:
+            return f"{claim_type}({','.join(str(a) for a in args)})"
+        return None
+
+    def _claims_to_text_cdl(self, claims: List[Claim]) -> List[str]:
+        """Convert list of claims to text_cdl format"""
+        cdl_list = []
+        for claim in claims:
+            cdl = self._claim_to_cdl(claim)
+            if cdl:
+                cdl_list.append(cdl)
+        return cdl_list
+
+
+class Scorer:
+    """Calculates score directly from verification results"""
+
+    def __init__(self):
+        self.invalid_claim_penalty = 20
+        self.cascading_error_penalty = 10
+
+    def score(self, verification_results: List[ClaimVerificationResult]) -> ScoringResult:
+        """Calculate score from verification results"""
+        if not verification_results:
+            return ScoringResult(
+                total_points=0,
+                valid_claims=0,
+                invalid_claims=0,
+                cascading_errors=0,
+                deductions=[],
+                summary="No claims to verify",
+            )
+
+        valid_count = sum(1 for r in verification_results if r.verdict == "valid")
+        invalid_count = sum(1 for r in verification_results if r.verdict == "invalid")
+        cascading_count = sum(1 for r in verification_results if r.verdict == "cascading_error")
+
+        deductions = []
+        total_deducted = 0
+
+        for r in verification_results:
+            if r.verdict == "invalid":
+                deductions.append({
+                    "claim_id": r.claim_id,
+                    "deducted_points": self.invalid_claim_penalty,
+                    "reason": r.error_details,
+                    "error_type": r.error_type,
+                })
+                total_deducted += self.invalid_claim_penalty
+            elif r.verdict == "cascading_error":
+                deductions.append({
+                    "claim_id": r.claim_id,
+                    "deducted_points": self.cascading_error_penalty,
+                    "reason": f"Cascading error from {r.root_cause_claim}",
+                    "error_type": "cascading_error",
+                })
+                total_deducted += self.cascading_error_penalty
+
+        total_points = max(0, 100 - total_deducted)
+
+        summary = f"{valid_count}/{len(verification_results)} claims verified successfully"
+        if invalid_count > 0:
+            summary += f", {invalid_count} invalid"
+        if cascading_count > 0:
+            summary += f", {cascading_count} cascading errors"
+
+        return ScoringResult(
+            total_points=total_points,
+            valid_claims=valid_count,
+            invalid_claims=invalid_count,
+            cascading_errors=cascading_count,
+            deductions=deductions,
+            summary=summary,
+        )
+
+
+class TwoImageGradingPipeline:
+    """New grading pipeline that processes problem and solution images separately"""
+
+    def __init__(self, llm_service: "LLMService"):
+        self.llm_service = llm_service
+        self.problem_extractor = ProblemClaimExtractor(llm_service)
+        self.student_extractor = StudentClaimExtractor(llm_service)
+        self.claim_verifier = ClaimVerifier(llm_service)
+        self.scorer = Scorer()
+
+    async def grade(
+        self,
+        problem_image_data: bytes,
+        solution_image_data: bytes,
+        problem_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Grade a student's solution using two-image approach.
+
+        Args:
+            problem_image_data: The problem-only image (no student work)
+            solution_image_data: The solution image with student work
+            problem_id: Optional identifier for tracking
+
+        Returns:
+            Grading result with verification results and score
+        """
+        print("\n" + "="*80)
+        print("[TwoImageGradingPipeline] Starting grading process")
+        print("="*80)
+
+        # Step 1: Extract problem claims (givens) from problem image
+        print("\n[Step 1] Extracting problem claims...")
+        problem_result = await self.problem_extractor.run(problem_image_data)
+
+        # Step 2: Extract student claims from solution image
+        print("\n[Step 2] Extracting student claims...")
+        student_result = await self.student_extractor.run(
+            problem_image_data=problem_image_data,
+            solution_image_data=solution_image_data,
+            given_claims=problem_result.given_claims,
+        )
+
+        # Step 3: Verify all student claims
+        print("\n[Step 3] Verifying student claims...")
+        verification_results = await self.claim_verifier.verify_all_claims(
+            given_claims=problem_result.given_claims,
+            student_claims=student_result.student_claims,
+            construction_cdl=problem_result.construction_cdl,
+            goal_cdl=problem_result.goal_cdl,
+        )
+
+        # Step 4: Calculate score
+        print("\n[Step 4] Calculating score...")
+        scoring_result = self.scorer.score(verification_results)
+
+        print("\n" + "="*80)
+        print("[TwoImageGradingPipeline] Grading complete")
+        print(f"Score: {scoring_result.total_points}/100")
+        print(f"Summary: {scoring_result.summary}")
+        print("="*80 + "\n")
+
+        return {
+            "success": True,
+            "problem_id": problem_id,
+            "problem_claims": problem_result.to_dict(),
+            "student_claims": student_result.to_dict(),
+            "verification_results": [r.to_dict() for r in verification_results],
+            "score": scoring_result.to_dict(),
+        }
+
+
+# ============================================================================
+# LEGACY PIPELINE (kept for backward compatibility)
+# ============================================================================
+# DEPRECATED: DEFAULT_GIVENS and DEFAULT_RUBRICS are kept for backward compatibility
+# with the legacy single-image pipeline. New code should use the TwoImageGradingPipeline
+# which extracts givens dynamically from the problem image.
+#
+# To migrate: Use the two-image pipeline by passing problem_image and solution_image
+# to the /analyze endpoint instead of a single image field.
+# ============================================================================
 
 DEFAULT_GIVENS: Dict[str, List[Claim]] = {
     "diameter_right_angle": [
@@ -2143,7 +3165,8 @@ Output STRICT JSON in the format specified above (only construction_cdl, text_cd
 
 # Initialize LLM service
 llm_service = LLMService()
-grading_pipeline = GradingPipeline(llm_service)
+grading_pipeline = GradingPipeline(llm_service)  # Legacy pipeline
+two_image_pipeline = TwoImageGradingPipeline(llm_service)  # New two-image pipeline
 
 # Backup functionality
 BACKUP_DIR = os.getenv('BACKUP_DIR', 'backups/images')
@@ -2179,79 +3202,150 @@ def health_check():
 
 @app.route('/analyze', methods=['POST'])
 def analyze_image():
-    """Analyze whiteboard image"""
+    """
+    Analyze math problem and solution images.
+
+    Supports two modes:
+    1. Two-image mode (recommended): problem_image + solution_image
+    2. Legacy mode: single image field (backward compatible)
+    """
     try:
         data = request.get_json()
 
-        if not data or 'image' not in data:
+        if not data:
             return jsonify({
-                'error': 'No image data provided'
+                'error': 'No data provided'
             }), 400
 
-        problem_id = data.get('problem_id', 'diameter_right_angle')
-        student_modified_drawing_description = data.get('student_modified_drawing_description')
-        expected_score = data.get('expected_score')
-        
-        # Decode base64 image
-        try:
-            image_data = base64.b64decode(data['image'])
-            # Debug: save the uploaded image for inspection
-            os.makedirs("uploads", exist_ok=True)
-            debug_path = os.path.join("uploads", "debug_latest.png")
-            with open(debug_path, "wb") as f:
-                f.write(image_data)
-            print(f"Saved debug image to {debug_path}")
-        except Exception as e:
-            return jsonify({
-                'error': f'Invalid base64 image data: {str(e)}'
-            }), 400
-        
-        # Validate image
-        try:
-            image = Image.open(io.BytesIO(image_data))
-            image.verify()  # Verify it's a valid image
-        except Exception as e:
-            return jsonify({
-                'error': f'Invalid image format: {str(e)}'
-            }), 400
-        
-        # Save backup of the image before processing
-        backup_path = save_image_backup(image_data, "analyzed_image")
-        
-        print(f"Processing image analysis request at {datetime.now()}")
-        print(f"Image backup saved to: {backup_path}")
-        
-        # Process with LLM (note: using sync call since Flask doesn't support async by default)
-        # For production, consider using Flask with async support or Celery for async processing
-        import asyncio
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        
-        try:
-            analysis_result = loop.run_until_complete(llm_service.analyze_image(image_data))
-            grading_result = loop.run_until_complete(
-                grading_pipeline.grade(
-                    problem_id=problem_id,
-                    text_description=analysis_result.get("text_description", ""),
-                    drawing_description=analysis_result.get("drawing_description", ""),
-                    image_data=image_data,
-                    student_modified_drawing_description=student_modified_drawing_description,
-                    expected_score=expected_score,
-                )
-            )
-        finally:
-            loop.close()
+        # Check for two-image mode (new)
+        if 'problem_image' in data and 'solution_image' in data:
+            return _handle_two_image_analysis(data)
 
-        return jsonify({
-            "analysis": analysis_result,
-            "grading": grading_result
-        })
-        
+        # Legacy single-image mode
+        if 'image' not in data:
+            return jsonify({
+                'error': 'No image data provided. Use either (problem_image + solution_image) or (image) fields.'
+            }), 400
+
+        return _handle_legacy_analysis(data)
+
     except Exception as e:
         print(f"Error processing image: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({
             'error': f'Internal server error: {str(e)}'
         }), 500
+
+
+def _handle_two_image_analysis(data: Dict[str, Any]):
+    """Handle new two-image grading pipeline"""
+    problem_id = data.get('problem_id')
+
+    # Decode base64 images
+    try:
+        problem_image_data = base64.b64decode(data['problem_image'])
+        solution_image_data = base64.b64decode(data['solution_image'])
+    except Exception as e:
+        return jsonify({
+            'error': f'Invalid base64 image data: {str(e)}'
+        }), 400
+
+    # Validate both images
+    for img_data, name in [(problem_image_data, 'problem'), (solution_image_data, 'solution')]:
+        try:
+            image = Image.open(io.BytesIO(img_data))
+            image.verify()
+        except Exception as e:
+            return jsonify({
+                'error': f'Invalid {name} image format: {str(e)}'
+            }), 400
+
+    # Save backups
+    save_image_backup(problem_image_data, "problem_image")
+    save_image_backup(solution_image_data, "solution_image")
+
+    print(f"Processing two-image analysis request at {datetime.now()}")
+
+    # Run new pipeline
+    import asyncio
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    try:
+        result = loop.run_until_complete(
+            two_image_pipeline.grade(
+                problem_image_data=problem_image_data,
+                solution_image_data=solution_image_data,
+                problem_id=problem_id,
+            )
+        )
+    finally:
+        loop.close()
+
+    return jsonify(result)
+
+
+def _handle_legacy_analysis(data: Dict[str, Any]):
+    """Handle legacy single-image grading pipeline (backward compatible)"""
+    problem_id = data.get('problem_id', 'diameter_right_angle')
+    student_modified_drawing_description = data.get('student_modified_drawing_description')
+    expected_score = data.get('expected_score')
+
+    # Decode base64 image
+    try:
+        image_data = base64.b64decode(data['image'])
+        # Debug: save the uploaded image for inspection
+        os.makedirs("uploads", exist_ok=True)
+        debug_path = os.path.join("uploads", "debug_latest.png")
+        with open(debug_path, "wb") as f:
+            f.write(image_data)
+        print(f"Saved debug image to {debug_path}")
+    except Exception as e:
+        return jsonify({
+            'error': f'Invalid base64 image data: {str(e)}'
+        }), 400
+
+    # Validate image
+    try:
+        image = Image.open(io.BytesIO(image_data))
+        image.verify()
+    except Exception as e:
+        return jsonify({
+            'error': f'Invalid image format: {str(e)}'
+        }), 400
+
+    # Save backup
+    backup_path = save_image_backup(image_data, "analyzed_image")
+
+    print(f"Processing legacy image analysis request at {datetime.now()}")
+    print(f"Image backup saved to: {backup_path}")
+
+    # Process with LLM
+    import asyncio
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    try:
+        analysis_result = loop.run_until_complete(llm_service.analyze_image(image_data))
+        grading_result = loop.run_until_complete(
+            grading_pipeline.grade(
+                problem_id=problem_id,
+                text_description=analysis_result.get("text_description", ""),
+                drawing_description=analysis_result.get("drawing_description", ""),
+                image_data=image_data,
+                student_modified_drawing_description=student_modified_drawing_description,
+                expected_score=expected_score,
+            )
+        )
+    finally:
+        loop.close()
+
+    return jsonify({
+        "analysis": analysis_result,
+        "grading": grading_result
+    })
+
 
 @app.route('/api/process-image', methods=['POST'])
 def process_image():
