@@ -1,7 +1,26 @@
 {
   "permissions": {
     "allow": [
-      "Read(//Users/yud/Documents/**)"
+      "Read(//Users/yud/Documents/**)",
+      "Bash(python3:*)",
+      "Bash(git checkout:*)",
+      "Bash(chmod:*)",
+      "Bash(./run_llm_vision_e2e.py --problem geo_6 --type correct 2>&1 | head -150)",
+      "Bash(./run_llm_vision_e2e.py --problem geo_6 --type correct 2>&1 | grep -A 30 \"Problem Analysis\")",
+      "Bash(./run_llm_vision_e2e.py --problem geo_6 --type correct 2>&1 | grep -A 5 \"SCORE:\")",
+      "Bash(./run_llm_vision_e2e.py --problem geo_6 --type correct 2>&1 | tail -80)",
+      "Bash(./run_llm_vision_e2e.py --problem geo_6 --type correct 2>&1 | grep -A 200 \"Detailed Step-by-Step\")",
+      "Bash(./run_llm_vision_e2e.py --problem geo_6 --type correct 2>&1 | tail -120)",
+      "Bash(./run_llm_vision_e2e.py --problem geo_6 --type correct 2>&1 | tail -200)",
+      "Bash(./run_llm_vision_e2e.py --problem geo_6 --type correct 2>&1 | grep -E \"\\(SCORE:|Step-by-Step|S[0-9]+\\\\]|VALID|INVALID|TEST\\)\" | head -80)",
+      "Bash(./run_llm_vision_e2e.py --problem geo_6 --type correct 2>&1 | grep -A 10 \"\\\\[S1\\\\]\" | head -20)",
+      "Bash(./run_llm_vision_e2e.py --problem geo_6 --type correct 2>&1 | tail -100)",
+      "Bash(./run_llm_vision_e2e.py --problem geo_6 --type correct 2>&1 | grep -E \"\\(SCORE|S11\\\\]|Details:\\)\" | head -20)",
+      "Bash(./run_llm_vision_e2e.py --problem geo_6 --type correct 2>&1 | tail -150)",
+      "Bash(./run_llm_vision_e2e.py --problem geo_6 --type correct 2>&1 | grep -E \"\\(SCORE|S5\\\\]|S6\\\\]|Minor|TEST\\)\" | head -20)",
+      "Bash(./run_llm_vision_e2e.py --problem geo_6 --type correct 2>&1 | grep -A 8 \"\\\\[S6\\\\]\" | head -15)",
+      "Bash(./run_llm_vision_e2e.py --problem geo_6 --type correct 2>&1 | grep -E \"\\(SCORE|Summary\\)\" | head -5)",
+      "Bash(python:*)"
     ],
     "deny": [],
     "ask": []

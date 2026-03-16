@@ -1,0 +1,168 @@
+{
+  "problem_image": "/Users/yud/repo/outsmartai/backend/tests/data/geo_5.png",
+  "solution_image": "/Users/yud/repo/outsmartai/backend/tests/data/geo_5_c_1.png",
+  "expected_result": "correct",
+  "test_passed": true,
+  "grader_mode": "simple_llm",
+  "use_tool": false,
+  "image_mode": "two_images",
+  "result": {
+    "total_score": 98,
+    "max_score": 100,
+    "is_correct": true,
+    "is_reasoning_valid": true,
+    "problem_goal": "Find the surface area of a cube given that the face diagonal AB is 8m",
+    "student_answer": "192 m²",
+    "correct_answer": "192 m²",
+    "givens": [
+      {
+        "fact": "The shape is a cube",
+        "confidence": 1.0,
+        "source": "text"
+      },
+      {
+        "fact": "Line AB is 8m",
+        "confidence": 1.0,
+        "source": "both"
+      },
+      {
+        "fact": "Line AB is a diameter (diagonal of a face)",
+        "confidence": 1.0,
+        "source": "both"
+      },
+      {
+        "fact": "Points A and B are at opposite corners of a face of the cube",
+        "confidence": 0.95,
+        "source": "diagram"
+      }
+    ],
+    "steps": [
+      {
+        "step_number": 1,
+        "content": "The diameter of the square is 8m which makes the square into 2 right triangles 45° 45° 90° angles",
+        "confidence": 0.95,
+        "is_valid": true,
+        "issue": "Minor terminology issue: 'diameter' should be 'diagonal' for a square"
+      },
+      {
+        "step_number": 2,
+        "content": "8 = x√2 so x = 4√2",
+        "confidence": 0.95,
+        "is_valid": true,
+        "issue": null
+      },
+      {
+        "step_number": 3,
+        "content": "(4√2)² = 32 = A",
+        "confidence": 0.95,
+        "is_valid": true,
+        "issue": null
+      },
+      {
+        "step_number": 4,
+        "content": "Since the surface area of one square is 32m² the cube's surface area is 6 times that",
+        "confidence": 0.95,
+        "is_valid": true,
+        "issue": null
+      },
+      {
+        "step_number": 5,
+        "content": "32 × 6 = 192    SA = 192m²",
+        "confidence": 1.0,
+        "is_valid": true,
+        "issue": null
+      }
+    ],
+    "minor_issues": [
+      {
+        "description": "Used 'diameter' instead of 'diagonal' when referring to the diagonal of a square face",
+        "deduction": 2,
+        "step_number": 1
+      }
+    ],
+    "major_issues": [],
+    "summary": "The student correctly identified that AB is the diagonal of a square face, properly used the 45-45-90 triangle relationship to find the side length (4√2), calculated the area of one face (32 m²), and multiplied by 6 to get the correct surface area of 192 m². Minor terminology error using 'diameter' instead of 'diagonal'.",
+    "raw_response": {
+      "givens": [
+        {
+          "fact": "The shape is a cube",
+          "confidence": 1.0,
+          "source": "text"
+        },
+        {
+          "fact": "Line AB is 8m",
+          "confidence": 1.0,
+          "source": "both"
+        },
+        {
+          "fact": "Line AB is a diameter (diagonal of a face)",
+          "confidence": 1.0,
+          "source": "both"
+        },
+        {
+          "fact": "Points A and B are at opposite corners of a face of the cube",
+          "confidence": 0.95,
+          "source": "diagram"
+        }
+      ],
+      "derived_facts": [
+        "AB is the diagonal of a square face of the cube",
+        "If the side of the cube is s, then the face diagonal = s√2",
+        "Since AB = 8m and AB = s√2, we have s√2 = 8, so s = 8/√2 = 4√2 m",
+        "Area of one face = s² = (4√2)² = 32 m²",
+        "Surface area of cube = 6 × (area of one face) = 6 × 32 = 192 m²"
+      ],
+      "steps": [
+        {
+          "step_number": 1,
+          "content": "The diameter of the square is 8m which makes the square into 2 right triangles 45° 45° 90° angles",
+          "confidence": 0.95,
+          "is_valid": true,
+          "issue": "Minor terminology issue: 'diameter' should be 'diagonal' for a square"
+        },
+        {
+          "step_number": 2,
+          "content": "8 = x√2 so x = 4√2",
+          "confidence": 0.95,
+          "is_valid": true,
+          "issue": null
+        },
+        {
+          "step_number": 3,
+          "content": "(4√2)² = 32 = A",
+          "confidence": 0.95,
+          "is_valid": true,
+          "issue": null
+        },
+        {
+          "step_number": 4,
+          "content": "Since the surface area of one square is 32m² the cube's surface area is 6 times that",
+          "confidence": 0.95,
+          "is_valid": true,
+          "issue": null
+        },
+        {
+          "step_number": 5,
+          "content": "32 × 6 = 192    SA = 192m²",
+          "confidence": 1.0,
+          "is_valid": true,
+          "issue": null
+        }
+      ],
+      "problem_goal": "Find the surface area of a cube given that the face diagonal AB is 8m",
+      "correct_answer": "192 m²",
+      "student_answer": "192 m²",
+      "is_correct": true,
+      "is_reasoning_valid": true,
+      "minor_issues": [
+        {
+          "description": "Used 'diameter' instead of 'diagonal' when referring to the diagonal of a square face",
+          "deduction": 2,
+          "step_number": 1
+        }
+      ],
+      "major_issues": [],
+      "summary": "The student correctly identified that AB is the diagonal of a square face, properly used the 45-45-90 triangle relationship to find the side length (4√2), calculated the area of one face (32 m²), and multiplied by 6 to get the correct surface area of 192 m². Minor terminology error using 'diameter' instead of 'diagonal'."
+    }
+  }
+}

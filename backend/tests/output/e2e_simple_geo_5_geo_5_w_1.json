@@ -1,0 +1,190 @@
+{
+  "problem_image": "/Users/yud/repo/outsmartai/backend/tests/data/geo_5.png",
+  "solution_image": "/Users/yud/repo/outsmartai/backend/tests/data/geo_5_w_1.png",
+  "expected_result": "wrong",
+  "test_passed": true,
+  "grader_mode": "simple_llm",
+  "use_tool": false,
+  "image_mode": "two_images",
+  "result": {
+    "total_score": 58,
+    "max_score": 100,
+    "is_correct": true,
+    "is_reasoning_valid": false,
+    "problem_goal": "Find the surface area of a cube given that the diagonal of a face is 8m",
+    "student_answer": "192 m²",
+    "correct_answer": "192 m²",
+    "givens": [
+      {
+        "fact": "Line AB is 8m and is a diameter",
+        "confidence": 0.98,
+        "source": "text"
+      },
+      {
+        "fact": "The shape is a cube",
+        "confidence": 0.98,
+        "source": "both"
+      },
+      {
+        "fact": "AB appears to be the diagonal of a face of the cube (connecting opposite corners of the bottom face)",
+        "confidence": 0.95,
+        "source": "diagram"
+      }
+    ],
+    "steps": [
+      {
+        "step_number": 1,
+        "content": "The diameter of the square is 8m which makes the square into 2 right triangles 45° 45° 90° angles",
+        "confidence": 0.95,
+        "is_valid": true,
+        "issue": "Uses 'diameter' instead of 'diagonal' but concept is correct"
+      },
+      {
+        "step_number": 2,
+        "content": "8 = x√2 so x = 4",
+        "confidence": 0.9,
+        "is_valid": false,
+        "issue": "Arithmetic error: 8/√2 = 4√2 ≈ 5.66, not 4"
+      },
+      {
+        "step_number": 3,
+        "content": "4² = 16 = A (area of one face)",
+        "confidence": 0.95,
+        "is_valid": false,
+        "issue": "Based on incorrect side length; should be (4√2)² = 32"
+      },
+      {
+        "step_number": 4,
+        "content": "Since the surface area of one square is 16m² the cube's surface area is 12 times that",
+        "confidence": 0.95,
+        "is_valid": false,
+        "issue": "A cube has 6 faces, not 12"
+      },
+      {
+        "step_number": 5,
+        "content": "12 × 16 = 192    SA = 192m²",
+        "confidence": 0.98,
+        "is_valid": false,
+        "issue": "Calculation follows from incorrect reasoning but happens to get correct answer due to compensating errors"
+      }
+    ],
+    "minor_issues": [
+      {
+        "description": "Uses 'diameter' instead of 'diagonal' for the square",
+        "deduction": 2,
+        "step_number": 1
+      }
+    ],
+    "major_issues": [
+      {
+        "description": "Arithmetic error: 8/√2 = 4√2 ≈ 5.66, not 4. The student incorrectly simplified x√2 = 8 to get x = 4",
+        "type": "root_cause",
+        "step_number": 2
+      },
+      {
+        "description": "Incorrect claim that a cube has 12 faces (it has 6 faces)",
+        "type": "root_cause",
+        "step_number": 4
+      },
+      {
+        "description": "Area of one face calculated as 16 instead of 32 (cascading from step 2 error)",
+        "type": "cascading",
+        "step_number": 3
+      }
+    ],
+    "summary": "The student arrived at the correct answer of 192 m² through compensating errors: they incorrectly calculated the side length as 4 (should be 4√2) giving face area 16 (should be 32), then incorrectly multiplied by 12 faces (should be 6). The errors (16 × 12 vs 32 × 6) happen to give the same result.",
+    "raw_response": {
+      "givens": [
+        {
+          "fact": "Line AB is 8m and is a diameter",
+          "confidence": 0.98,
+          "source": "text"
+        },
+        {
+          "fact": "The shape is a cube",
+          "confidence": 0.98,
+          "source": "both"
+        },
+        {
+          "fact": "AB appears to be the diagonal of a face of the cube (connecting opposite corners of the bottom face)",
+          "confidence": 0.95,
+          "source": "diagram"
+        }
+      ],
+      "derived_facts": [
+        "AB is the diagonal of a square face of the cube, and AB = 8m",
+        "For a square with side s, the diagonal d = s√2",
+        "If diagonal = 8m, then side s = 8/√2 = 8√2/2 = 4√2 m",
+        "A cube has 6 faces",
+        "Surface area of cube = 6 × s² = 6 × (4√2)² = 6 × 32 = 192 m²"
+      ],
+      "steps": [
+        {
+          "step_number": 1,
+          "content": "The diameter of the square is 8m which makes the square into 2 right triangles 45° 45° 90° angles",
+          "confidence": 0.95,
+          "is_valid": true,
+          "issue": "Uses 'diameter' instead of 'diagonal' but concept is correct"
+        },
+        {
+          "step_number": 2,
+          "content": "8 = x√2 so x = 4",
+          "confidence": 0.9,
+          "is_valid": false,
+          "issue": "Arithmetic error: 8/√2 = 4√2 ≈ 5.66, not 4"
+        },
+        {
+          "step_number": 3,
+          "content": "4² = 16 = A (area of one face)",
+          "confidence": 0.95,
+          "is_valid": false,
+          "issue": "Based on incorrect side length; should be (4√2)² = 32"
+        },
+        {
+          "step_number": 4,
+          "content": "Since the surface area of one square is 16m² the cube's surface area is 12 times that",
+          "confidence": 0.95,
+          "is_valid": false,
+          "issue": "A cube has 6 faces, not 12"
+        },
+        {
+          "step_number": 5,
+          "content": "12 × 16 = 192    SA = 192m²",
+          "confidence": 0.98,
+          "is_valid": false,
+          "issue": "Calculation follows from incorrect reasoning but happens to get correct answer due to compensating errors"
+        }
+      ],
+      "problem_goal": "Find the surface area of a cube given that the diagonal of a face is 8m",
+      "correct_answer": "192 m²",
+      "student_answer": "192 m²",
+      "is_correct": true,
+      "is_reasoning_valid": false,
+      "minor_issues": [
+        {
+          "description": "Uses 'diameter' instead of 'diagonal' for the square",
+          "deduction": 2,
+          "step_number": 1
+        }
+      ],
+      "major_issues": [
+        {
+          "description": "Arithmetic error: 8/√2 = 4√2 ≈ 5.66, not 4. The student incorrectly simplified x√2 = 8 to get x = 4",
+          "type": "root_cause",
+          "step_number": 2
+        },
+        {
+          "description": "Incorrect claim that a cube has 12 faces (it has 6 faces)",
+          "type": "root_cause",
+          "step_number": 4
+        },
+        {
+          "description": "Area of one face calculated as 16 instead of 32 (cascading from step 2 error)",
+          "type": "cascading",
+          "step_number": 3
+        }
+      ],
+      "summary": "The student arrived at the correct answer of 192 m² through compensating errors: they incorrectly calculated the side length as 4 (should be 4√2) giving face area 16 (should be 32), then incorrectly multiplied by 12 faces (should be 6). The errors (16 × 12 vs 32 × 6) happen to give the same result."
+    }
+  }
+}

@@ -1,0 +1,225 @@
+{
+  "problem_image": "/Users/yud/repo/outsmartai/backend/tests/data/geo_1.png",
+  "solution_image": "/Users/yud/repo/outsmartai/backend/tests/data/geo_1_c_1.png",
+  "expected_result": "correct",
+  "test_passed": true,
+  "grader_mode": "simple_llm",
+  "use_tool": false,
+  "image_mode": "two_images",
+  "result": {
+    "total_score": 100,
+    "max_score": 100,
+    "is_correct": true,
+    "is_reasoning_valid": true,
+    "problem_goal": "Prove that angle C (angle ACB) is a right angle",
+    "student_answer": "∠ACB = 90° and is right angle",
+    "correct_answer": "∠ACB = 90° (angle C is a right angle)",
+    "givens": [
+      {
+        "fact": "Line AB is the diameter of the circle",
+        "confidence": 0.98,
+        "source": "text"
+      },
+      {
+        "fact": "Point C is a point on the circle between point A and point B",
+        "confidence": 0.98,
+        "source": "text"
+      },
+      {
+        "fact": "Point O is the center point of the circle",
+        "confidence": 0.98,
+        "source": "text"
+      },
+      {
+        "fact": "Points A, B, and C are on the circle",
+        "confidence": 0.95,
+        "source": "diagram"
+      }
+    ],
+    "steps": [
+      {
+        "step_number": 1,
+        "content": "OA = OC = OB",
+        "confidence": 0.95,
+        "is_valid": true,
+        "issue": null
+      },
+      {
+        "step_number": 2,
+        "content": "Triangle AOC and Triangle BOC are both isosceles triangles so ∠OAC = ∠OCA and ∠OBC = ∠OCB",
+        "confidence": 0.95,
+        "is_valid": true,
+        "issue": null
+      },
+      {
+        "step_number": 3,
+        "content": "∠OCA = x = ∠OAC, ∠OCB = y = ∠OBC",
+        "confidence": 0.9,
+        "is_valid": true,
+        "issue": null
+      },
+      {
+        "step_number": 4,
+        "content": "∠ACB = ∠ACO + ∠OCB = x + y",
+        "confidence": 0.92,
+        "is_valid": true,
+        "issue": null
+      },
+      {
+        "step_number": 5,
+        "content": "∠OAC = ∠BAC, ∠OBC = ∠CBA",
+        "confidence": 0.9,
+        "is_valid": true,
+        "issue": null
+      },
+      {
+        "step_number": 6,
+        "content": "∠ACB + ∠BAC + ∠CBA = 180°",
+        "confidence": 0.95,
+        "is_valid": true,
+        "issue": null
+      },
+      {
+        "step_number": 7,
+        "content": "∠ACB + ∠OAC + ∠OBC = 180°",
+        "confidence": 0.92,
+        "is_valid": true,
+        "issue": null
+      },
+      {
+        "step_number": 8,
+        "content": "(x + y) + x + y = 180°",
+        "confidence": 0.95,
+        "is_valid": true,
+        "issue": null
+      },
+      {
+        "step_number": 9,
+        "content": "x + y = 90°",
+        "confidence": 0.95,
+        "is_valid": true,
+        "issue": null
+      },
+      {
+        "step_number": 10,
+        "content": "∠ACB = 90° and is right angle",
+        "confidence": 0.98,
+        "is_valid": true,
+        "issue": null
+      }
+    ],
+    "minor_issues": [],
+    "major_issues": [],
+    "summary": "The student correctly proves that angle ACB is a right angle using the inscribed angle theorem approach. They properly identify that triangles AOC and BOC are isosceles (since radii are equal), use the base angle property, and apply the triangle angle sum theorem to conclude that angle ACB = 90°.",
+    "raw_response": {
+      "givens": [
+        {
+          "fact": "Line AB is the diameter of the circle",
+          "confidence": 0.98,
+          "source": "text"
+        },
+        {
+          "fact": "Point C is a point on the circle between point A and point B",
+          "confidence": 0.98,
+          "source": "text"
+        },
+        {
+          "fact": "Point O is the center point of the circle",
+          "confidence": 0.98,
+          "source": "text"
+        },
+        {
+          "fact": "Points A, B, and C are on the circle",
+          "confidence": 0.95,
+          "source": "diagram"
+        }
+      ],
+      "derived_facts": [
+        "OA = OB = OC = r (radius), since O is the center and A, B, C are on the circle",
+        "O lies on diameter AB, so O is the midpoint of AB",
+        "Triangle AOC is isosceles with OA = OC",
+        "Triangle BOC is isosceles with OB = OC"
+      ],
+      "steps": [
+        {
+          "step_number": 1,
+          "content": "OA = OC = OB",
+          "confidence": 0.95,
+          "is_valid": true,
+          "issue": null
+        },
+        {
+          "step_number": 2,
+          "content": "Triangle AOC and Triangle BOC are both isosceles triangles so ∠OAC = ∠OCA and ∠OBC = ∠OCB",
+          "confidence": 0.95,
+          "is_valid": true,
+          "issue": null
+        },
+        {
+          "step_number": 3,
+          "content": "∠OCA = x = ∠OAC, ∠OCB = y = ∠OBC",
+          "confidence": 0.9,
+          "is_valid": true,
+          "issue": null
+        },
+        {
+          "step_number": 4,
+          "content": "∠ACB = ∠ACO + ∠OCB = x + y",
+          "confidence": 0.92,
+          "is_valid": true,
+          "issue": null
+        },
+        {
+          "step_number": 5,
+          "content": "∠OAC = ∠BAC, ∠OBC = ∠CBA",
+          "confidence": 0.9,
+          "is_valid": true,
+          "issue": null
+        },
+        {
+          "step_number": 6,
+          "content": "∠ACB + ∠BAC + ∠CBA = 180°",
+          "confidence": 0.95,
+          "is_valid": true,
+          "issue": null
+        },
+        {
+          "step_number": 7,
+          "content": "∠ACB + ∠OAC + ∠OBC = 180°",
+          "confidence": 0.92,
+          "is_valid": true,
+          "issue": null
+        },
+        {
+          "step_number": 8,
+          "content": "(x + y) + x + y = 180°",
+          "confidence": 0.95,
+          "is_valid": true,
+          "issue": null
+        },
+        {
+          "step_number": 9,
+          "content": "x + y = 90°",
+          "confidence": 0.95,
+          "is_valid": true,
+          "issue": null
+        },
+        {
+          "step_number": 10,
+          "content": "∠ACB = 90° and is right angle",
+          "confidence": 0.98,
+          "is_valid": true,
+          "issue": null
+        }
+      ],
+      "problem_goal": "Prove that angle C (angle ACB) is a right angle",
+      "correct_answer": "∠ACB = 90° (angle C is a right angle)",
+      "student_answer": "∠ACB = 90° and is right angle",
+      "is_correct": true,
+      "is_reasoning_valid": true,
+      "minor_issues": [],
+      "major_issues": [],
+      "summary": "The student correctly proves that angle ACB is a right angle using the inscribed angle theorem approach. They properly identify that triangles AOC and BOC are isosceles (since radii are equal), use the base angle property, and apply the triangle angle sum theorem to conclude that angle ACB = 90°."
+    }
+  }
+}

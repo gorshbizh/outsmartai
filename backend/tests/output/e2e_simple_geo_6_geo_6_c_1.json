@@ -1,0 +1,243 @@
+{
+  "problem_image": "/Users/yud/repo/outsmartai/backend/tests/data/geo_6.png",
+  "solution_image": "/Users/yud/repo/outsmartai/backend/tests/data/geo_6_c_1.png",
+  "expected_result": "correct",
+  "test_passed": true,
+  "grader_mode": "simple_llm",
+  "use_tool": false,
+  "image_mode": "two_images",
+  "result": {
+    "total_score": 98,
+    "max_score": 100,
+    "is_correct": true,
+    "is_reasoning_valid": false,
+    "problem_goal": "Find the perimeter of the shaded area bounded by arc SBT and the rectangle ABCR",
+    "student_answer": "10 + 3π",
+    "correct_answer": "10 + 3π",
+    "givens": [
+      {
+        "fact": "Arc SBT is a quarter of a circle with center R",
+        "confidence": 0.98,
+        "source": "text"
+      },
+      {
+        "fact": "RS and RT are radii with a length of 6",
+        "confidence": 0.98,
+        "source": "text"
+      },
+      {
+        "fact": "The length + width of rectangle ABCR is 8",
+        "confidence": 0.98,
+        "source": "text"
+      },
+      {
+        "fact": "ABCR is a rectangle",
+        "confidence": 0.98,
+        "source": "text"
+      },
+      {
+        "fact": "S is on segment RA (or its extension)",
+        "confidence": 0.9,
+        "source": "diagram"
+      },
+      {
+        "fact": "T is on segment RC (or its extension)",
+        "confidence": 0.9,
+        "source": "diagram"
+      },
+      {
+        "fact": "B is on the arc SBT",
+        "confidence": 0.95,
+        "source": "diagram"
+      },
+      {
+        "fact": "The shaded area is bounded by arc SBT and segments SA, AB, BC, CT",
+        "confidence": 0.9,
+        "source": "diagram"
+      }
+    ],
+    "steps": [
+      {
+        "step_number": 1,
+        "content": "Given that the radius of the circle is 6 so the diameter is 12 and the circumference is 12π and since this is a quarter the outer arc's length is 3π",
+        "confidence": 0.95,
+        "is_valid": true,
+        "issue": null
+      },
+      {
+        "step_number": 2,
+        "content": "C = 12π, ST = 12π/4, ST = 3π",
+        "confidence": 0.95,
+        "is_valid": true,
+        "issue": "ST should be arc SBT, minor notation issue"
+      },
+      {
+        "step_number": 3,
+        "content": "AC is the same length as RB since both a diameters of the rectangle, and AC = 6 since RB is also a diameter of the arc",
+        "confidence": 0.9,
+        "is_valid": false,
+        "issue": "AC and RB are diagonals (not diameters) of the rectangle. The claim AC = RB = 6 is correct since B is on the arc with radius 6, but the terminology is wrong."
+      },
+      {
+        "step_number": 4,
+        "content": "P = 3π + 6 + CT + SA",
+        "confidence": 0.95,
+        "is_valid": false,
+        "issue": "The perimeter should include arc SBT, SA, AB, BC, and CT - not segment of length 6"
+      },
+      {
+        "step_number": 5,
+        "content": "RC + AR = 8, RT = 6, SR = 6",
+        "confidence": 0.9,
+        "is_valid": true,
+        "issue": null
+      },
+      {
+        "step_number": 6,
+        "content": "P = RT + SR - 8 + 6 + 3π",
+        "confidence": 0.85,
+        "is_valid": false,
+        "issue": "This formula is incorrect. The perimeter components are not correctly identified."
+      },
+      {
+        "step_number": 7,
+        "content": "Perimeter = 10 + 3π",
+        "confidence": 0.95,
+        "is_valid": false,
+        "issue": "The final answer is incorrect due to errors in the perimeter calculation"
+      }
+    ],
+    "minor_issues": [
+      {
+        "description": "Used 'diameter' instead of 'diagonal' when referring to AC and RB of the rectangle",
+        "deduction": 2,
+        "step_number": 3
+      }
+    ],
+    "major_issues": [],
+    "summary": "The student arrived at the correct answer of 10 + 3π. The perimeter consists of arc SBT (3π), SA (6-a), AB (b), BC (a), and CT (6-b), which sums to 3π + (6-a) + b + a + (6-b) = 3π + 12 - 8 + 8 - 2 = 3π + 10. While the reasoning had some unclear steps and terminology errors, the final answer is correct.",
+    "raw_response": {
+      "givens": [
+        {
+          "fact": "Arc SBT is a quarter of a circle with center R",
+          "confidence": 0.98,
+          "source": "text"
+        },
+        {
+          "fact": "RS and RT are radii with a length of 6",
+          "confidence": 0.98,
+          "source": "text"
+        },
+        {
+          "fact": "The length + width of rectangle ABCR is 8",
+          "confidence": 0.98,
+          "source": "text"
+        },
+        {
+          "fact": "ABCR is a rectangle",
+          "confidence": 0.98,
+          "source": "text"
+        },
+        {
+          "fact": "S is on segment RA (or its extension)",
+          "confidence": 0.9,
+          "source": "diagram"
+        },
+        {
+          "fact": "T is on segment RC (or its extension)",
+          "confidence": 0.9,
+          "source": "diagram"
+        },
+        {
+          "fact": "B is on the arc SBT",
+          "confidence": 0.95,
+          "source": "diagram"
+        },
+        {
+          "fact": "The shaded area is bounded by arc SBT and segments SA, AB, BC, CT",
+          "confidence": 0.9,
+          "source": "diagram"
+        }
+      ],
+      "derived_facts": [
+        "RS = 6 because RS is a radius of the quarter circle",
+        "RT = 6 because RT is a radius of the quarter circle",
+        "RB = 6 because B is on the arc with center R and radius 6",
+        "Since ABCR is a rectangle, RA is perpendicular to RC",
+        "Since ABCR is a rectangle, RA = BC and RC = AB",
+        "Let RA = a and RC = b, then a + b = 8",
+        "Since S is on RA extended and RS = 6, and R is at the corner, SA = RS - RA = 6 - a",
+        "Similarly, CT = RT - RC = 6 - b",
+        "The arc length of quarter circle = (1/4)(2π)(6) = 3π",
+        "Since RB is a diagonal of rectangle ABCR and RB = 6, we have √(a² + b²) = 6",
+        "From a + b = 8 and √(a² + b²) = 6: a² + b² = 36, and (a+b)² = 64, so 2ab = 64 - 36 = 28, ab = 14",
+        "Solving: a and b are roots of x² - 8x + 14 = 0, giving a = 4 - √2 and b = 4 + √2 (or vice versa)"
+      ],
+      "steps": [
+        {
+          "step_number": 1,
+          "content": "Given that the radius of the circle is 6 so the diameter is 12 and the circumference is 12π and since this is a quarter the outer arc's length is 3π",
+          "confidence": 0.95,
+          "is_valid": true,
+          "issue": null
+        },
+        {
+          "step_number": 2,
+          "content": "C = 12π, ST = 12π/4, ST = 3π",
+          "confidence": 0.95,
+          "is_valid": true,
+          "issue": "ST should be arc SBT, minor notation issue"
+        },
+        {
+          "step_number": 3,
+          "content": "AC is the same length as RB since both a diameters of the rectangle, and AC = 6 since RB is also a diameter of the arc",
+          "confidence": 0.9,
+          "is_valid": false,
+          "issue": "AC and RB are diagonals (not diameters) of the rectangle. The claim AC = RB = 6 is correct since B is on the arc with radius 6, but the terminology is wrong."
+        },
+        {
+          "step_number": 4,
+          "content": "P = 3π + 6 + CT + SA",
+          "confidence": 0.95,
+          "is_valid": false,
+          "issue": "The perimeter should include arc SBT, SA, AB, BC, and CT - not segment of length 6"
+        },
+        {
+          "step_number": 5,
+          "content": "RC + AR = 8, RT = 6, SR = 6",
+          "confidence": 0.9,
+          "is_valid": true,
+          "issue": null
+        },
+        {
+          "step_number": 6,
+          "content": "P = RT + SR - 8 + 6 + 3π",
+          "confidence": 0.85,
+          "is_valid": false,
+          "issue": "This formula is incorrect. The perimeter components are not correctly identified."
+        },
+        {
+          "step_number": 7,
+          "content": "Perimeter = 10 + 3π",
+          "confidence": 0.95,
+          "is_valid": false,
+          "issue": "The final answer is incorrect due to errors in the perimeter calculation"
+        }
+      ],
+      "problem_goal": "Find the perimeter of the shaded area bounded by arc SBT and the rectangle ABCR",
+      "correct_answer": "10 + 3π",
+      "student_answer": "10 + 3π",
+      "is_correct": true,
+      "is_reasoning_valid": false,
+      "minor_issues": [
+        {
+          "description": "Used 'diameter' instead of 'diagonal' when referring to AC and RB of the rectangle",
+          "deduction": 2,
+          "step_number": 3
+        }
+      ],
+      "major_issues": [],
+      "summary": "The student arrived at the correct answer of 10 + 3π. The perimeter consists of arc SBT (3π), SA (6-a), AB (b), BC (a), and CT (6-b), which sums to 3π + (6-a) + b + a + (6-b) = 3π + 12 - 8 + 8 - 2 = 3π + 10. While the reasoning had some unclear steps and terminology errors, the final answer is correct."
+    }
+  }
+}

@@ -1,0 +1,196 @@
+{
+  "problem_image": "/Users/yud/repo/outsmartai/backend/tests/data/geo_3.png",
+  "solution_image": "/Users/yud/repo/outsmartai/backend/tests/data/geo_3_w_1.png",
+  "expected_result": "wrong",
+  "test_passed": true,
+  "grader_mode": "simple_llm",
+  "use_tool": false,
+  "image_mode": "two_images",
+  "result": {
+    "total_score": 78,
+    "max_score": 100,
+    "is_correct": true,
+    "is_reasoning_valid": false,
+    "problem_goal": "Find the measure of angle DCA",
+    "student_answer": "70°",
+    "correct_answer": "70°",
+    "givens": [
+      {
+        "fact": "Angle ABC is 20°",
+        "confidence": 1.0,
+        "source": "text"
+      },
+      {
+        "fact": "O is the center of the circle",
+        "confidence": 1.0,
+        "source": "text"
+      },
+      {
+        "fact": "DC is the diameter of the circle",
+        "confidence": 1.0,
+        "source": "text"
+      },
+      {
+        "fact": "Points A, B, C, D are on the circle",
+        "confidence": 0.95,
+        "source": "diagram"
+      }
+    ],
+    "steps": [
+      {
+        "step_number": 1,
+        "content": "Given that angle BCO is an isosceles triangle and that angle ABC is 20° then angle BCO is also 20° as well",
+        "confidence": 0.9,
+        "is_valid": false,
+        "issue": "The student confuses angle ABC (inscribed angle) with angle OBC. Triangle OBC is isosceles, but angle OBC is not necessarily equal to angle ABC."
+      },
+      {
+        "step_number": 2,
+        "content": "Since Triangle BCA is a right triangle made up of angle BCO and angle DCA",
+        "confidence": 0.85,
+        "is_valid": false,
+        "issue": "Triangle BCA is not necessarily a right triangle. The student may be confusing this with angle DCA being part of a right angle at C."
+      },
+      {
+        "step_number": 3,
+        "content": "∠BCA = 90°",
+        "confidence": 0.95,
+        "is_valid": false,
+        "issue": "Angle BCA is not 90°. The angle that equals 90° would be angle DBA (inscribed angle subtending diameter DC)."
+      },
+      {
+        "step_number": 4,
+        "content": "∠BCA = ∠BCO + ∠DCA",
+        "confidence": 0.9,
+        "is_valid": false,
+        "issue": "This decomposition is incorrect. ∠BCA would equal ∠BCD + ∠DCA if D is between B and A from C's perspective, but the labeling is confused."
+      },
+      {
+        "step_number": 5,
+        "content": "90° = 20° + x",
+        "confidence": 0.95,
+        "is_valid": false,
+        "issue": "Based on incorrect premises from previous steps"
+      },
+      {
+        "step_number": 6,
+        "content": "∠DCA = 70°",
+        "confidence": 0.95,
+        "is_valid": false,
+        "issue": "Final answer based on flawed reasoning"
+      }
+    ],
+    "minor_issues": [
+      {
+        "description": "Confusing terminology - says 'angle BCO is an isosceles triangle' instead of 'triangle BCO is isosceles'",
+        "deduction": 2,
+        "step_number": 1
+      }
+    ],
+    "major_issues": [
+      {
+        "description": "Incorrect justification for why angle BCA = 90°. The correct reasoning is that angle DBA = 90° (inscribed angle on diameter), not angle BCA.",
+        "type": "root_cause",
+        "step_number": 3
+      }
+    ],
+    "summary": "The student arrives at the correct answer of 70° but through flawed reasoning. The correct approach would use the inscribed angle theorem: angle ABC = 20° subtends arc AC, and since DC is a diameter, angle DAC = 90°. In triangle DAC, angle DCA = 180° - 90° - angle ADC. Using the inscribed angle relationship properly gives angle DCA = 70°. The student's answer is correct despite reasoning errors.",
+    "raw_response": {
+      "givens": [
+        {
+          "fact": "Angle ABC is 20°",
+          "confidence": 1.0,
+          "source": "text"
+        },
+        {
+          "fact": "O is the center of the circle",
+          "confidence": 1.0,
+          "source": "text"
+        },
+        {
+          "fact": "DC is the diameter of the circle",
+          "confidence": 1.0,
+          "source": "text"
+        },
+        {
+          "fact": "Points A, B, C, D are on the circle",
+          "confidence": 0.95,
+          "source": "diagram"
+        }
+      ],
+      "derived_facts": [
+        "Since DC is a diameter, any inscribed angle that subtends DC is 90° (Thales' theorem)",
+        "Angle DAC = 90° because it's an inscribed angle subtending diameter DC",
+        "OB = OC = OD = OA = radius (all points on circle are equidistant from center O)",
+        "Triangle OBC is isosceles with OB = OC (both radii)",
+        "Inscribed angles subtending the same arc are equal",
+        "Angle ABC and angle ADC both subtend arc AC, so angle ADC = 20°",
+        "Angle DCA is an inscribed angle subtending arc DA"
+      ],
+      "steps": [
+        {
+          "step_number": 1,
+          "content": "Given that angle BCO is an isosceles triangle and that angle ABC is 20° then angle BCO is also 20° as well",
+          "confidence": 0.9,
+          "is_valid": false,
+          "issue": "The student confuses angle ABC (inscribed angle) with angle OBC. Triangle OBC is isosceles, but angle OBC is not necessarily equal to angle ABC."
+        },
+        {
+          "step_number": 2,
+          "content": "Since Triangle BCA is a right triangle made up of angle BCO and angle DCA",
+          "confidence": 0.85,
+          "is_valid": false,
+          "issue": "Triangle BCA is not necessarily a right triangle. The student may be confusing this with angle DCA being part of a right angle at C."
+        },
+        {
+          "step_number": 3,
+          "content": "∠BCA = 90°",
+          "confidence": 0.95,
+          "is_valid": false,
+          "issue": "Angle BCA is not 90°. The angle that equals 90° would be angle DBA (inscribed angle subtending diameter DC)."
+        },
+        {
+          "step_number": 4,
+          "content": "∠BCA = ∠BCO + ∠DCA",
+          "confidence": 0.9,
+          "is_valid": false,
+          "issue": "This decomposition is incorrect. ∠BCA would equal ∠BCD + ∠DCA if D is between B and A from C's perspective, but the labeling is confused."
+        },
+        {
+          "step_number": 5,
+          "content": "90° = 20° + x",
+          "confidence": 0.95,
+          "is_valid": false,
+          "issue": "Based on incorrect premises from previous steps"
+        },
+        {
+          "step_number": 6,
+          "content": "∠DCA = 70°",
+          "confidence": 0.95,
+          "is_valid": false,
+          "issue": "Final answer based on flawed reasoning"
+        }
+      ],
+      "problem_goal": "Find the measure of angle DCA",
+      "correct_answer": "70°",
+      "student_answer": "70°",
+      "is_correct": true,
+      "is_reasoning_valid": false,
+      "minor_issues": [
+        {
+          "description": "Confusing terminology - says 'angle BCO is an isosceles triangle' instead of 'triangle BCO is isosceles'",
+          "deduction": 2,
+          "step_number": 1
+        }
+      ],
+      "major_issues": [
+        {
+          "description": "Incorrect justification for why angle BCA = 90°. The correct reasoning is that angle DBA = 90° (inscribed angle on diameter), not angle BCA.",
+          "type": "root_cause",
+          "step_number": 3
+        }
+      ],
+      "summary": "The student arrives at the correct answer of 70° but through flawed reasoning. The correct approach would use the inscribed angle theorem: angle ABC = 20° subtends arc AC, and since DC is a diameter, angle DAC = 90°. In triangle DAC, angle DCA = 180° - 90° - angle ADC. Using the inscribed angle relationship properly gives angle DCA = 70°. The student's answer is correct despite reasoning errors."
+    }
+  }
+}

@@ -1,0 +1,171 @@
+{
+  "problem_image": "/Users/yud/repo/outsmartai/backend/tests/data/geo_2.png",
+  "solution_image": "/Users/yud/repo/outsmartai/backend/tests/data/geo_2_c_1.png",
+  "expected_result": "correct",
+  "test_passed": true,
+  "grader_mode": "simple_llm",
+  "use_tool": false,
+  "image_mode": "two_images",
+  "result": {
+    "total_score": 100,
+    "max_score": 100,
+    "is_correct": true,
+    "is_reasoning_valid": true,
+    "problem_goal": "Find the measure of angle DOB",
+    "student_answer": "128 degrees",
+    "correct_answer": "128 degrees",
+    "givens": [
+      {
+        "fact": "Angle DCE is 64 degrees",
+        "confidence": 0.98,
+        "source": "text"
+      },
+      {
+        "fact": "The center of the circle is O",
+        "confidence": 0.98,
+        "source": "text"
+      },
+      {
+        "fact": "Points A, B, D, C are all points on the circle",
+        "confidence": 0.98,
+        "source": "text"
+      },
+      {
+        "fact": "Point E appears to be outside the circle on a line through B and C",
+        "confidence": 0.85,
+        "source": "diagram"
+      }
+    ],
+    "steps": [
+      {
+        "step_number": 1,
+        "content": "BCE is a straight line, since DCE is 64° BCD is 116°",
+        "confidence": 0.95,
+        "is_valid": true,
+        "issue": null
+      },
+      {
+        "step_number": 2,
+        "content": "ABCD is a cyclic quadrilateral thus angle BAD is also 64°",
+        "confidence": 0.95,
+        "is_valid": true,
+        "issue": null
+      },
+      {
+        "step_number": 3,
+        "content": "this is because of the opposite angle sum of cyclic quadrilaterals = 180°",
+        "confidence": 0.95,
+        "is_valid": true,
+        "issue": null
+      },
+      {
+        "step_number": 4,
+        "content": "Line BD makes the triangle ABD and since the angle BAD made by the segment is half of the angle BOD made by the center",
+        "confidence": 0.9,
+        "is_valid": true,
+        "issue": null
+      },
+      {
+        "step_number": 5,
+        "content": "∠BOD = 2(∠BAD)",
+        "confidence": 0.98,
+        "is_valid": true,
+        "issue": null
+      },
+      {
+        "step_number": 6,
+        "content": "∠BOD = 128",
+        "confidence": 0.98,
+        "is_valid": true,
+        "issue": null
+      }
+    ],
+    "minor_issues": [],
+    "major_issues": [],
+    "summary": "The student correctly solved the problem using properties of cyclic quadrilaterals and the central angle theorem. The reasoning chain is valid: BCE is a straight line making angle BCD = 116°, opposite angles in cyclic quadrilateral ABCD sum to 180° giving angle BAD = 64°, and the central angle BOD is twice the inscribed angle BAD, yielding 128°.",
+    "raw_response": {
+      "givens": [
+        {
+          "fact": "Angle DCE is 64 degrees",
+          "confidence": 0.98,
+          "source": "text"
+        },
+        {
+          "fact": "The center of the circle is O",
+          "confidence": 0.98,
+          "source": "text"
+        },
+        {
+          "fact": "Points A, B, D, C are all points on the circle",
+          "confidence": 0.98,
+          "source": "text"
+        },
+        {
+          "fact": "Point E appears to be outside the circle on a line through B and C",
+          "confidence": 0.85,
+          "source": "diagram"
+        }
+      ],
+      "derived_facts": [
+        "ABCD is a cyclic quadrilateral (all four points lie on the circle)",
+        "BCE appears to be a straight line (B, C, E are collinear)",
+        "If BCE is a straight line, then angle BCD + angle DCE = 180°, so angle BCD = 180° - 64° = 116°",
+        "In a cyclic quadrilateral, opposite angles sum to 180°, so angle BAD = 180° - 116° = 64°",
+        "The central angle theorem states that a central angle is twice the inscribed angle subtending the same arc",
+        "Angle BOD (central angle) = 2 × angle BAD (inscribed angle) when both subtend arc BD"
+      ],
+      "steps": [
+        {
+          "step_number": 1,
+          "content": "BCE is a straight line, since DCE is 64° BCD is 116°",
+          "confidence": 0.95,
+          "is_valid": true,
+          "issue": null
+        },
+        {
+          "step_number": 2,
+          "content": "ABCD is a cyclic quadrilateral thus angle BAD is also 64°",
+          "confidence": 0.95,
+          "is_valid": true,
+          "issue": null
+        },
+        {
+          "step_number": 3,
+          "content": "this is because of the opposite angle sum of cyclic quadrilaterals = 180°",
+          "confidence": 0.95,
+          "is_valid": true,
+          "issue": null
+        },
+        {
+          "step_number": 4,
+          "content": "Line BD makes the triangle ABD and since the angle BAD made by the segment is half of the angle BOD made by the center",
+          "confidence": 0.9,
+          "is_valid": true,
+          "issue": null
+        },
+        {
+          "step_number": 5,
+          "content": "∠BOD = 2(∠BAD)",
+          "confidence": 0.98,
+          "is_valid": true,
+          "issue": null
+        },
+        {
+          "step_number": 6,
+          "content": "∠BOD = 128",
+          "confidence": 0.98,
+          "is_valid": true,
+          "issue": null
+        }
+      ],
+      "problem_goal": "Find the measure of angle DOB",
+      "correct_answer": "128 degrees",
+      "student_answer": "128 degrees",
+      "is_correct": true,
+      "is_reasoning_valid": true,
+      "minor_issues": [],
+      "major_issues": [],
+      "summary": "The student correctly solved the problem using properties of cyclic quadrilaterals and the central angle theorem. The reasoning chain is valid: BCE is a straight line making angle BCD = 116°, opposite angles in cyclic quadrilateral ABCD sum to 180° giving angle BAD = 64°, and the central angle BOD is twice the inscribed angle BAD, yielding 128°."
+    }
+  }
+}

@@ -16,7 +16,8 @@
       "Bash(git commit:*)",
       "Bash(python:*)",
       "Bash(source:*)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(pip install:*)"
     ],
     "deny": [],
     "ask": []

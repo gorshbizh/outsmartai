@@ -2035,13 +2035,15 @@ class LLMService:
         self.provider = LLM_PROVIDER
         self.api_key = LLM_API_KEY
 
-    async def chat(self, messages: List[Dict[str, Any]], model: str = "gpt-5.2", temperature: float = 0.0, image_data: Optional[bytes] = None) -> Dict[str, Any]:
+    async def chat(self, messages: List[Dict[str, Any]], model: str = "claude-opus-4-5", temperature: float = 0.0, image_data: Optional[bytes] = None) -> Dict[str, Any]:
         """Generic chat interface for A1-A4 agents."""
         if not self.api_key or self.provider == 'mock':
             return self._mock_chat(messages)
         try:
             if self.provider == 'openai':
                 return await self._chat_openai(messages, model=model, temperature=temperature, image_data=image_data)
+            elif self.provider == 'anthropic':
+                return await self._chat_anthropic(messages, model=model, temperature=temperature, image_data=image_data)
             else:
                 raise ValueError(f"Unsupported LLM provider for chat: {self.provider}")
         except Exception as e:
@@ -2069,34 +2071,473 @@ class LLMService:
             print("Falling back to mock response")
             return self._get_mock_response()
 
-    async def _chat_openai(self, messages: List[Dict[str, Any]], model: str = "gpt-5.2", temperature: float = 0.0, image_data: Optional[bytes] = None) -> Dict[str, Any]:
+    async def _chat_openai(self, messages: List[Dict[str, Any]], model: str = "gpt-4o", temperature: float = 0.0, image_data: Optional[bytes] = None) -> Dict[str, Any]:
         from openai import OpenAI
         client = OpenAI(api_key=self.api_key, timeout=600.0)  # Increased to 10 minutes
-        formatted_messages = []
+        formatted_input = []
         for msg in messages:
             content = msg.get("content")
             if isinstance(content, list):
-                content_parts = content
+                # Convert old format to new format
+                content_parts = []
+                for part in content:
+                    if part.get("type") == "text":
+                        content_parts.append({"type": "input_text", "text": part.get("text")})
+                    elif part.get("type") == "image_url":
+                        content_parts.append({"type": "input_image", "image_url": part.get("image_url", {}).get("url")})
+                    else:
+                        content_parts.append({"type": "input_text", "text": str(part)})
             else:
-                content_parts = [{"type": "text", "text": content}]
+                content_parts = [{"type": "input_text", "text": content}]
             if image_data and msg.get("role") == "user":
                 image_format = self._detect_image_format(image_data)
                 b64 = base64.b64encode(image_data).decode("utf-8")
                 content_parts = content_parts + [
                     {
-                        "type": "image_url",
-                        "image_url": {"url": f"data:image/{image_format};base64,{b64}", "detail": "high"},
+                        "type": "input_image",
+                        "image_url": f"data:image/{image_format};base64,{b64}",
                     }
                 ]
-            formatted_messages.append({"role": msg.get("role"), "content": content_parts})
+            formatted_input.append({"role": msg.get("role"), "content": content_parts})
 
-        response = client.chat.completions.create(
+        response = client.responses.create(
             model=model,
-            messages=formatted_messages,
-            max_completion_tokens=4000,
+            input=formatted_input,
             temperature=temperature,
         )
-        content = response.choices[0].message.content
+        content = response.output_text
+        try:
+            return json.loads(content)
+        except Exception:
+            return {"raw": content}
+
+    async def _chat_anthropic(self, messages: List[Dict[str, Any]], model: str = "claude-opus-4-6", temperature: float = 0.0, image_data: Optional[bytes] = None) -> Dict[str, Any]:
+        """Chat using Anthropic Claude API"""
+        import anthropic
+        client = anthropic.Anthropic(api_key=self.api_key, timeout=600.0)
+
+        # Convert messages to Anthropic format
+        anthropic_messages = []
+        system_prompt = None
+
+        for msg in messages:
+            role = msg.get("role")
+            content = msg.get("content")
+
+            # Extract system message
+            if role == "system":
+                if isinstance(content, str):
+                    system_prompt = content
+                elif isinstance(content, list):
+                    system_prompt = " ".join([p.get("text", "") for p in content if p.get("type") == "text"])
+                continue
+
+            # Build content for user/assistant messages
+            if isinstance(content, list):
+                content_parts = []
+                for part in content:
+                    if part.get("type") == "text":
+                        content_parts.append({"type": "text", "text": part.get("text")})
+                    elif part.get("type") == "image_url":
+                        # Extract base64 data from data URL
+                        url = part.get("image_url", {}).get("url", "")
+                        if url.startswith("data:"):
+                            media_type, b64_data = url.split(";base64,", 1)
+                            media_type = media_type.replace("data:", "")
+                            content_parts.append({
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": media_type,
+                                    "data": b64_data
+                                }
+                            })
+            else:
+                content_parts = [{"type": "text", "text": content}]
+
+            # Add image if provided for user messages
+            if image_data and role == "user":
+                image_format = self._detect_image_format(image_data)
+                b64 = base64.b64encode(image_data).decode("utf-8")
+                content_parts.append({
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": f"image/{image_format}",
+                        "data": b64
+                    }
+                })
+
+            anthropic_messages.append({"role": role, "content": content_parts})
+
+        # Make API call
+        kwargs = {
+            "model": model,
+            "max_tokens": 8192,
+            "messages": anthropic_messages,
+            "temperature": temperature,
+        }
+        if system_prompt:
+            kwargs["system"] = system_prompt
+
+        response = client.messages.create(**kwargs)
+        content = response.content[0].text
+
+        try:
+            return json.loads(content)
+        except Exception:
+            return {"raw": content}
+
+    async def chat_with_tools(
+        self,
+        messages: List[Dict[str, Any]],
+        tools: List[Dict[str, Any]],
+        model: str = "claude-opus-4-5",
+        temperature: float = 0.0,
+        image_data: Optional[bytes] = None
+    ) -> Dict[str, Any]:
+        """
+        Chat with function calling enabled.
+
+        Args:
+            messages: Chat messages
+            tools: Tool definitions (OpenAI format)
+            model: Model to use
+            temperature: Sampling temperature
+            image_data: Optional image to include
+
+        Returns:
+            Response with potential tool_calls
+        """
+        if not self.api_key or self.provider == 'mock':
+            return {"raw": "Mock response - no tool calls"}
+
+        if self.provider == 'anthropic':
+            return await self._chat_with_tools_anthropic(messages, tools, model, temperature, image_data)
+
+        try:
+            from openai import OpenAI
+            client = OpenAI(api_key=self.api_key, timeout=600.0)
+
+            formatted_input = []
+            for msg in messages:
+                content = msg.get("content")
+                if isinstance(content, list):
+                    # Convert old format to new format
+                    content_parts = []
+                    for part in content:
+                        if part.get("type") == "text":
+                            content_parts.append({"type": "input_text", "text": part.get("text")})
+                        elif part.get("type") == "image_url":
+                            content_parts.append({"type": "input_image", "image_url": part.get("image_url", {}).get("url")})
+                        else:
+                            content_parts.append({"type": "input_text", "text": str(part)})
+                else:
+                    content_parts = [{"type": "input_text", "text": content}]
+
+                if image_data and msg.get("role") == "user":
+                    image_format = self._detect_image_format(image_data)
+                    b64 = base64.b64encode(image_data).decode("utf-8")
+                    content_parts = content_parts + [
+                        {
+                            "type": "input_image",
+                            "image_url": f"data:image/{image_format};base64,{b64}",
+                        }
+                    ]
+                formatted_input.append({"role": msg.get("role"), "content": content_parts})
+
+            # Convert tools to new format (type: "function" with name at top level)
+            formatted_tools = []
+            for tool in tools:
+                if tool.get("type") == "function":
+                    formatted_tools.append({
+                        "type": "function",
+                        "name": tool.get("function", {}).get("name"),
+                        "description": tool.get("function", {}).get("description"),
+                        "parameters": tool.get("function", {}).get("parameters")
+                    })
+                else:
+                    formatted_tools.append(tool)
+
+            response = client.responses.create(
+                model=model,
+                input=formatted_input,
+                tools=formatted_tools,
+                tool_choice="auto",
+                temperature=temperature,
+            )
+
+            # Check for tool calls in the new format
+            tool_calls = [item for item in response.output if item.type == "function_call"]
+
+            result = {"content": response.output_text}
+
+            if tool_calls:
+                result["tool_calls"] = [
+                    {
+                        "id": tc.call_id,
+                        "function": {
+                            "name": tc.name,
+                            "arguments": tc.arguments
+                        }
+                    }
+                    for tc in tool_calls
+                ]
+
+            return result
+
+        except Exception as e:
+            print(f"LLM chat_with_tools error: {e}")
+            return {"error": str(e)}
+
+    async def _chat_with_tools_anthropic(
+        self,
+        messages: List[Dict[str, Any]],
+        tools: List[Dict[str, Any]],
+        model: str = "claude-opus-4-6",
+        temperature: float = 0.0,
+        image_data: Optional[bytes] = None
+    ) -> Dict[str, Any]:
+        """Chat with Anthropic tool use enabled."""
+        import anthropic
+        client = anthropic.Anthropic(api_key=self.api_key, timeout=600.0)
+
+        # Convert messages to Anthropic format
+        anthropic_messages = []
+        system_prompt = None
+
+        for msg in messages:
+            role = msg.get("role")
+            content = msg.get("content")
+
+            if role == "system":
+                if isinstance(content, str):
+                    system_prompt = content
+                elif isinstance(content, list):
+                    system_prompt = " ".join([p.get("text", "") for p in content if p.get("type") == "text"])
+                continue
+
+            if isinstance(content, list):
+                content_parts = []
+                for part in content:
+                    if part.get("type") == "text":
+                        content_parts.append({"type": "text", "text": part.get("text")})
+                    elif part.get("type") == "image_url":
+                        url = part.get("image_url", {}).get("url", "")
+                        if url.startswith("data:"):
+                            media_type, b64_data = url.split(";base64,", 1)
+                            media_type = media_type.replace("data:", "")
+                            content_parts.append({
+                                "type": "image",
+                                "source": {"type": "base64", "media_type": media_type, "data": b64_data}
+                            })
+            else:
+                content_parts = [{"type": "text", "text": content}]
+
+            if image_data and role == "user":
+                image_format = self._detect_image_format(image_data)
+                b64 = base64.b64encode(image_data).decode("utf-8")
+                content_parts.append({
+                    "type": "image",
+                    "source": {"type": "base64", "media_type": f"image/{image_format}", "data": b64}
+                })
+
+            anthropic_messages.append({"role": role, "content": content_parts})
+
+        # Convert OpenAI tool format to Anthropic format
+        anthropic_tools = []
+        for tool in tools:
+            if tool.get("type") == "function":
+                func = tool.get("function", {})
+                anthropic_tools.append({
+                    "name": func.get("name"),
+                    "description": func.get("description"),
+                    "input_schema": func.get("parameters", {"type": "object", "properties": {}})
+                })
+
+        # Make API call
+        kwargs = {
+            "model": model,
+            "max_tokens": 8192,
+            "messages": anthropic_messages,
+            "temperature": temperature,
+            "tools": anthropic_tools,
+        }
+        if system_prompt:
+            kwargs["system"] = system_prompt
+
+        response = client.messages.create(**kwargs)
+
+        # Parse response
+        result = {"content": ""}
+        tool_calls = []
+
+        for block in response.content:
+            if block.type == "text":
+                result["content"] = block.text
+            elif block.type == "tool_use":
+                tool_calls.append({
+                    "id": block.id,
+                    "function": {
+                        "name": block.name,
+                        "arguments": json.dumps(block.input)
+                    }
+                })
+
+        if tool_calls:
+            result["tool_calls"] = tool_calls
+
+        return result
+
+    async def chat_with_two_images(
+        self,
+        messages: List[Dict[str, Any]],
+        image1_data: bytes,
+        image2_data: bytes,
+        model: str = "claude-opus-4-5",
+        temperature: float = 0.0
+    ) -> Dict[str, Any]:
+        """
+        Chat with two images in the same request.
+
+        Args:
+            messages: Chat messages (images will be appended to last user message)
+            image1_data: First image (e.g., problem image)
+            image2_data: Second image (e.g., student solution image)
+            model: Model to use
+            temperature: Sampling temperature
+
+        Returns:
+            Parsed JSON response or raw content
+        """
+        if not self.api_key or self.provider == 'mock':
+            return self._mock_chat(messages)
+
+        if self.provider == 'anthropic':
+            return await self._chat_with_two_images_anthropic(messages, image1_data, image2_data, model, temperature)
+
+        try:
+            from openai import OpenAI
+            client = OpenAI(api_key=self.api_key, timeout=600.0)
+
+            formatted_input = []
+            for i, msg in enumerate(messages):
+                content = msg.get("content")
+                if isinstance(content, list):
+                    # Convert old format to new format
+                    content_parts = []
+                    for part in content:
+                        if part.get("type") == "text":
+                            content_parts.append({"type": "input_text", "text": part.get("text")})
+                        elif part.get("type") == "image_url":
+                            content_parts.append({"type": "input_image", "image_url": part.get("image_url", {}).get("url")})
+                        else:
+                            content_parts.append({"type": "input_text", "text": str(part)})
+                else:
+                    content_parts = [{"type": "input_text", "text": content}]
+
+                # Add images to the last user message
+                if msg.get("role") == "user" and i == len(messages) - 1:
+                    image1_format = self._detect_image_format(image1_data)
+                    image2_format = self._detect_image_format(image2_data)
+                    b64_1 = base64.b64encode(image1_data).decode("utf-8")
+                    b64_2 = base64.b64encode(image2_data).decode("utf-8")
+
+                    content_parts = content_parts + [
+                        {
+                            "type": "input_image",
+                            "image_url": f"data:image/{image1_format};base64,{b64_1}",
+                        },
+                        {
+                            "type": "input_image",
+                            "image_url": f"data:image/{image2_format};base64,{b64_2}",
+                        }
+                    ]
+
+                formatted_input.append({"role": msg.get("role"), "content": content_parts})
+
+            response = client.responses.create(
+                model=model,
+                input=formatted_input,
+                temperature=temperature,
+            )
+
+            content = response.output_text
+            try:
+                return json.loads(content)
+            except Exception:
+                return {"raw": content}
+
+        except Exception as e:
+            print(f"LLM chat_with_two_images error: {e}")
+            return self._mock_chat(messages)
+
+    async def _chat_with_two_images_anthropic(
+        self,
+        messages: List[Dict[str, Any]],
+        image1_data: bytes,
+        image2_data: bytes,
+        model: str = "claude-opus-4-6",
+        temperature: float = 0.0
+    ) -> Dict[str, Any]:
+        """Chat with two images using Anthropic Claude."""
+        import anthropic
+        client = anthropic.Anthropic(api_key=self.api_key, timeout=600.0)
+
+        anthropic_messages = []
+        system_prompt = None
+
+        for i, msg in enumerate(messages):
+            role = msg.get("role")
+            content = msg.get("content")
+
+            if role == "system":
+                if isinstance(content, str):
+                    system_prompt = content
+                elif isinstance(content, list):
+                    system_prompt = " ".join([p.get("text", "") for p in content if p.get("type") == "text"])
+                continue
+
+            if isinstance(content, list):
+                content_parts = []
+                for part in content:
+                    if part.get("type") == "text":
+                        content_parts.append({"type": "text", "text": part.get("text")})
+            else:
+                content_parts = [{"type": "text", "text": content}]
+
+            # Add images to the last user message
+            if role == "user" and i == len(messages) - 1:
+                image1_format = self._detect_image_format(image1_data)
+                image2_format = self._detect_image_format(image2_data)
+                b64_1 = base64.b64encode(image1_data).decode("utf-8")
+                b64_2 = base64.b64encode(image2_data).decode("utf-8")
+
+                content_parts.extend([
+                    {
+                        "type": "image",
+                        "source": {"type": "base64", "media_type": f"image/{image1_format}", "data": b64_1}
+                    },
+                    {
+                        "type": "image",
+                        "source": {"type": "base64", "media_type": f"image/{image2_format}", "data": b64_2}
+                    }
+                ])
+
+            anthropic_messages.append({"role": role, "content": content_parts})
+
+        kwargs = {
+            "model": model,
+            "max_tokens": 8192,
+            "messages": anthropic_messages,
+            "temperature": temperature,
+        }
+        if system_prompt:
+            kwargs["system"] = system_prompt
+
+        response = client.messages.create(**kwargs)
+        content = response.content[0].text
+
         try:
             return json.loads(content)
         except Exception:
@@ -2244,35 +2685,36 @@ Example 2
 Please grade the problem and solution shown in the image.
 """
             
-            response = client.chat.completions.create(
-                model="gpt-5.2",  
-                messages=[
+            response = client.responses.create(
+                model="gpt-4o",
+                input=[
                     {
                         "role": "system",
-                        "content": sys_prompt
+                        "content": [
+                            {
+                                "type": "input_text",
+                                "text": sys_prompt
+                            }
+                        ]
                     },
                     {
                         "role": "user",
                         "content": [
                             {
-                                "type": "text",
+                                "type": "input_text",
                                 "text": user_prompt,
                             },
                             {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": f"data:image/{image_format};base64,{base64_image}",
-                                    "detail": "high"
-                                }
+                                "type": "input_image",
+                                "image_url": f"data:image/{image_format};base64,{base64_image}"
                             }
                         ]
                     }
                 ],
-                max_completion_tokens=15000,
                 temperature=0
             )
-            
-            content = response.choices[0].message.content
+
+            content = response.output_text
             return self._parse_response(content)
             
         except ImportError:
@@ -2284,47 +2726,48 @@ Please grade the problem and solution shown in the image.
                 print(f"API response status: {getattr(e.response, 'status_code', 'N/A')}")
                 print(f"API response body: {getattr(e.response, 'text', 'N/A')}")
             raise Exception(f"OpenAI API error: {str(e)}")
-    
-    # async def _analyze_with_anthropic(self, image_data: bytes) -> Dict[str, Any]:
-    #     """Analyze image using Anthropic Claude"""
-    #     try:
-    #         import anthropic
-            
-    #         client = anthropic.Anthropic(api_key=self.api_key)
-    #         base64_image = base64.b64encode(image_data).decode('utf-8')
-            
-    #         response = client.messages.create(
-    #             model="claude-3-5-sonnet-20241022",  # Updated to latest model
-    #             max_tokens=1000,
-    #             messages=[
-    #                 {
-    #                     "role": "user",
-    #                     "content": [
-    #                         {
-    #                             "type": "image",
-    #                             "source": {
-    #                                 "type": "base64",
-    #                                 "media_type": "image/png",
-    #                                 "data": base64_image
-    #                             }
-    #                         },
-    #                         {
-    #                             "type": "text",
-    #                             "text": "Please analyze this whiteboard drawing and provide: 1) Text recognition of any written content, 2) Description of visual elements (diagrams, shapes, arrows), 3) Content analysis and interpretation, 4) Suggestions for improvement or organization. Format your response as JSON with keys: text_recognition, visual_elements, content_analysis, suggestions (array), confidence (0-1)."
-    #                         }
-    #                     ]
-    #                 }
-    #             ]
-    #         )
-            
-    #         content = response.content[0].text
-    #         return self._parse_response(content)
-            
-    #     except ImportError:
-    #         raise Exception("Anthropic library not installed. Run: pip install anthropic>=0.18.0")
-    #     except Exception as e:
-    #         raise Exception(f"Anthropic API error: {str(e)}")
-    
+
+    async def _analyze_with_anthropic(self, image_data: bytes) -> Dict[str, Any]:
+        """Analyze image using Anthropic Claude"""
+        try:
+            import anthropic
+
+            client = anthropic.Anthropic(api_key=self.api_key, timeout=600.0)
+            image_format = self._detect_image_format(image_data)
+            base64_image = base64.b64encode(image_data).decode('utf-8')
+
+            response = client.messages.create(
+                model="claude-opus-4-6",
+                max_tokens=8192,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": f"image/{image_format}",
+                                    "data": base64_image
+                                }
+                            },
+                            {
+                                "type": "text",
+                                "text": "Please analyze this whiteboard drawing and provide: 1) Text recognition of any written content, 2) Description of visual elements (diagrams, shapes, arrows), 3) Content analysis and interpretation, 4) Suggestions for improvement or organization. Format your response as JSON with keys: text_recognition, visual_elements, content_analysis, suggestions (array), confidence (0-1)."
+                            }
+                        ]
+                    }
+                ]
+            )
+
+            content = response.content[0].text
+            return self._parse_response(content)
+
+        except ImportError:
+            raise Exception("Anthropic library not installed. Run: pip install anthropic>=0.40.0")
+        except Exception as e:
+            raise Exception(f"Anthropic API error: {str(e)}")
+
     # async def _analyze_with_google(self, image_data: bytes) -> Dict[str, Any]:
     #     """Analyze image using Google Gemini"""
     #     import google.generativeai as genai
@@ -3239,8 +3682,15 @@ def analyze_image():
 
 
 def _handle_two_image_analysis(data: Dict[str, Any]):
-    """Handle new two-image grading pipeline"""
+    """Handle new two-image grading pipeline
+
+    Supports two grading modes:
+    - 'formalgeo' (default): Uses FormalGeo for formal verification
+    - 'llm_native': Uses pure LLM-based grading with tool-calling
+    """
     problem_id = data.get('problem_id')
+    grading_mode = data.get('grading_mode', 'formalgeo')
+    max_points = data.get('max_points', 100)
 
     # Decode base64 images
     try:
@@ -3265,21 +3715,39 @@ def _handle_two_image_analysis(data: Dict[str, Any]):
     save_image_backup(problem_image_data, "problem_image")
     save_image_backup(solution_image_data, "solution_image")
 
-    print(f"Processing two-image analysis request at {datetime.now()}")
+    print(f"Processing two-image analysis request at {datetime.now()} (mode={grading_mode})")
 
-    # Run new pipeline
+    # Run appropriate pipeline based on grading_mode
     import asyncio
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
     try:
-        result = loop.run_until_complete(
-            two_image_pipeline.grade(
-                problem_image_data=problem_image_data,
-                solution_image_data=solution_image_data,
-                problem_id=problem_id,
+        if grading_mode == 'llm_native':
+            # Use LLM-native grader with tool-calling
+            from graders.llm_native_grader import LLMNativeGeometryGrader
+            grader = LLMNativeGeometryGrader(llm_service)
+            result = loop.run_until_complete(
+                grader.grade(
+                    problem_image=problem_image_data,
+                    student_image=solution_image_data,
+                    max_points=max_points
+                )
             )
-        )
+            return jsonify({
+                "success": True,
+                "grading_mode": "llm_native",
+                "result": result.to_dict()
+            })
+        else:
+            # Default: Use existing FormalGeo pipeline
+            result = loop.run_until_complete(
+                two_image_pipeline.grade(
+                    problem_image_data=problem_image_data,
+                    solution_image_data=solution_image_data,
+                    problem_id=problem_id,
+                )
+            )
     finally:
         loop.close()
 

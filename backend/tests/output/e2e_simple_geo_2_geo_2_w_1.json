@@ -1,0 +1,189 @@
+{
+  "problem_image": "/Users/yud/repo/outsmartai/backend/tests/data/geo_2.png",
+  "solution_image": "/Users/yud/repo/outsmartai/backend/tests/data/geo_2_w_1.png",
+  "expected_result": "wrong",
+  "test_passed": true,
+  "grader_mode": "simple_llm",
+  "use_tool": false,
+  "image_mode": "two_images",
+  "result": {
+    "total_score": 60,
+    "max_score": 100,
+    "is_correct": false,
+    "is_reasoning_valid": false,
+    "problem_goal": "Find the measure of angle DOB",
+    "student_answer": "116°",
+    "correct_answer": "232° (or equivalently, the reflex angle is 232° and the non-reflex angle is 128°). Using the inscribed angle theorem: central angle DOB = 2 × inscribed angle DCB = 2 × 116° = 232°. The non-reflex angle DOB = 360° - 232° = 128°.",
+    "givens": [
+      {
+        "fact": "Angle DCE is 64 degrees",
+        "confidence": 0.98,
+        "source": "text"
+      },
+      {
+        "fact": "The center of the circle is O",
+        "confidence": 0.98,
+        "source": "text"
+      },
+      {
+        "fact": "Points A, B, D, C are all points on the circle",
+        "confidence": 0.98,
+        "source": "text"
+      },
+      {
+        "fact": "Point E appears to be on line BCE extended outside the circle",
+        "confidence": 0.85,
+        "source": "diagram"
+      }
+    ],
+    "steps": [
+      {
+        "step_number": 1,
+        "content": "BCE is a straight line, since DCE is 64° BCD is 116°",
+        "confidence": 0.95,
+        "is_valid": true,
+        "issue": null
+      },
+      {
+        "step_number": 2,
+        "content": "BODC is a quadrilateral and the opposite angles on a quadrilateral are the same angle BCD is equal to angle BOD",
+        "confidence": 0.9,
+        "is_valid": false,
+        "issue": "Incorrect claim - opposite angles in a quadrilateral are NOT necessarily equal. This is only true for specific quadrilaterals like parallelograms, not for general quadrilaterals like BODC."
+      },
+      {
+        "step_number": 3,
+        "content": "∠BCD = 116°",
+        "confidence": 0.98,
+        "is_valid": true,
+        "issue": null
+      },
+      {
+        "step_number": 4,
+        "content": "∠BOD = ∠BCD",
+        "confidence": 0.95,
+        "is_valid": false,
+        "issue": "This equality is false based on the incorrect reasoning about quadrilaterals"
+      },
+      {
+        "step_number": 5,
+        "content": "∠BOD = 116°",
+        "confidence": 0.98,
+        "is_valid": false,
+        "issue": "Incorrect final answer due to wrong reasoning"
+      }
+    ],
+    "minor_issues": [],
+    "major_issues": [
+      {
+        "description": "Incorrectly claimed that opposite angles in quadrilateral BODC are equal. This property only applies to cyclic quadrilaterals (where opposite angles sum to 180°) or parallelograms (where opposite angles are equal). BODC is neither.",
+        "type": "root_cause",
+        "step_number": 2
+      },
+      {
+        "description": "Failed to apply the inscribed angle theorem: the central angle DOB should be twice the inscribed angle BCD (which subtends the same arc), giving 2 × 116° = 232° for the reflex angle",
+        "type": "cascading",
+        "step_number": 4
+      },
+      {
+        "description": "Final answer of 116° is incorrect; the correct answer should be 232° (reflex) or 128° (non-reflex)",
+        "type": "cascading",
+        "step_number": 5
+      }
+    ],
+    "summary": "The student correctly found angle BCD = 116° but then applied an incorrect property about quadrilaterals. The correct approach uses the inscribed angle theorem: central angle DOB = 2 × inscribed angle BCD = 232° (reflex angle), or 128° for the non-reflex angle.",
+    "raw_response": {
+      "givens": [
+        {
+          "fact": "Angle DCE is 64 degrees",
+          "confidence": 0.98,
+          "source": "text"
+        },
+        {
+          "fact": "The center of the circle is O",
+          "confidence": 0.98,
+          "source": "text"
+        },
+        {
+          "fact": "Points A, B, D, C are all points on the circle",
+          "confidence": 0.98,
+          "source": "text"
+        },
+        {
+          "fact": "Point E appears to be on line BCE extended outside the circle",
+          "confidence": 0.85,
+          "source": "diagram"
+        }
+      ],
+      "derived_facts": [
+        "OA = OB = OC = OD (all radii of the circle)",
+        "BCE appears to be a straight line based on the diagram",
+        "If BCE is a straight line, then angle BCD + angle DCE = 180°, so angle BCD = 180° - 64° = 116°",
+        "Angle BCD is an inscribed angle that subtends arc BD (not containing C)",
+        "The central angle DOB subtends the same arc BD as inscribed angle BCD",
+        "Central angle = 2 × inscribed angle when they subtend the same arc"
+      ],
+      "steps": [
+        {
+          "step_number": 1,
+          "content": "BCE is a straight line, since DCE is 64° BCD is 116°",
+          "confidence": 0.95,
+          "is_valid": true,
+          "issue": null
+        },
+        {
+          "step_number": 2,
+          "content": "BODC is a quadrilateral and the opposite angles on a quadrilateral are the same angle BCD is equal to angle BOD",
+          "confidence": 0.9,
+          "is_valid": false,
+          "issue": "Incorrect claim - opposite angles in a quadrilateral are NOT necessarily equal. This is only true for specific quadrilaterals like parallelograms, not for general quadrilaterals like BODC."
+        },
+        {
+          "step_number": 3,
+          "content": "∠BCD = 116°",
+          "confidence": 0.98,
+          "is_valid": true,
+          "issue": null
+        },
+        {
+          "step_number": 4,
+          "content": "∠BOD = ∠BCD",
+          "confidence": 0.95,
+          "is_valid": false,
+          "issue": "This equality is false based on the incorrect reasoning about quadrilaterals"
+        },
+        {
+          "step_number": 5,
+          "content": "∠BOD = 116°",
+          "confidence": 0.98,
+          "is_valid": false,
+          "issue": "Incorrect final answer due to wrong reasoning"
+        }
+      ],
+      "problem_goal": "Find the measure of angle DOB",
+      "correct_answer": "232° (or equivalently, the reflex angle is 232° and the non-reflex angle is 128°). Using the inscribed angle theorem: central angle DOB = 2 × inscribed angle DCB = 2 × 116° = 232°. The non-reflex angle DOB = 360° - 232° = 128°.",
+      "student_answer": "116°",
+      "is_correct": false,
+      "is_reasoning_valid": false,
+      "minor_issues": [],
+      "major_issues": [
+        {
+          "description": "Incorrectly claimed that opposite angles in quadrilateral BODC are equal. This property only applies to cyclic quadrilaterals (where opposite angles sum to 180°) or parallelograms (where opposite angles are equal). BODC is neither.",
+          "type": "root_cause",
+          "step_number": 2
+        },
+        {
+          "description": "Failed to apply the inscribed angle theorem: the central angle DOB should be twice the inscribed angle BCD (which subtends the same arc), giving 2 × 116° = 232° for the reflex angle",
+          "type": "cascading",
+          "step_number": 4
+        },
+        {
+          "description": "Final answer of 116° is incorrect; the correct answer should be 232° (reflex) or 128° (non-reflex)",
+          "type": "cascading",
+          "step_number": 5
+        }
+      ],
+      "summary": "The student correctly found angle BCD = 116° but then applied an incorrect property about quadrilaterals. The correct approach uses the inscribed angle theorem: central angle DOB = 2 × inscribed angle BCD = 232° (reflex angle), or 128° for the non-reflex angle."
+    }
+  }
+}
