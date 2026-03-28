@@ -7,9 +7,10 @@ directly to the LLM and asks: "Is this solution correct?"
 
 Grading philosophy:
 - Focus on whether the final answer is correct and reasoning is valid
-- Minor issues (typos, informal language, wrong terminology): -2 points each
-- Major issues (wrong calculations, invalid logic): -10 points each
-- Only major issues can trigger cascading error concerns
+- Minor issues (typos, informal language, wrong terminology): -3 points each
+- Major issues (wrong calculations, invalid logic, root cause errors): -35 points each
+- Cascade issues (errors caused by prior major issues): -10 points each
+- Score starts at 100 and deducts points until reaching 0
 
 Key features:
 - Always uses two-image mode (problem image + solution image)
@@ -64,6 +65,7 @@ class SimpleGradingResult:
     steps: List[StudentStep]
     minor_issues: List[Dict[str, Any]]
     major_issues: List[Dict[str, Any]]
+    cascade_issues: List[Dict[str, Any]]
     summary: str
     raw_response: Optional[Dict[str, Any]] = None
 
@@ -187,20 +189,47 @@ Using the extracted givens and steps:
 
 STEP 4: IDENTIFY ISSUES
 
-MINOR ISSUES (-2 points each):
+CRITICAL GRADING PRINCIPLES:
+1. **Benefit of the Doubt**: When evaluating reasoning:
+   - Be VERY cautious before marking major issues
+   - Alternative reasoning paths can be valid, even if different from your approach
+   - Abbreviated steps that skip obvious details should not be penalized
+   - If you're uncertain whether a step is valid, classify as minor issue at most
+
+2. **Distinguish Valid Alternatives from Errors**:
+   - VALID ALTERNATIVE: Different reasoning path that is mathematically sound (no penalty even if unconventional)
+   - ACTUAL ERROR: Clear mathematical mistakes, invalid logic, or contradictions with given facts (major issue)
+   - When in doubt: If you cannot identify a clear mathematical error or contradiction, assume it's a valid alternative
+
+3. **Verify Your Own Understanding**: Before marking a major issue, double-check:
+   - Did you correctly understand all the givens and derived facts?
+   - Could the student be using a valid geometric relationship you haven't considered?
+   - Is your "correct answer" actually correct, or did you make an error?
+   - Are you penalizing a difference in approach rather than an actual error?
+
+Classify each issue into one of three categories:
+
+MAJOR ISSUES (-35 points each):
+ONLY mark as major if you are CERTAIN the step contains a fundamental error:
+- Wrong calculations or arithmetic errors that are clear root causes
+- Incorrect geometric claims that directly contradict given information AND lead to wrong conclusions
+- Using completely invalid formulas or relationships
+- Clear logical fallacies or contradictions
+**IMPORTANT**: Be extremely skeptical before marking major issues. Re-verify your assessment and ensure you're not penalizing an alternative valid approach.
+
+CASCADE ISSUES (-10 points each):
+- Errors caused by a prior major issue
+- Steps that follow logically from a previous error but would be correct if the prior step were correct
+- The local reasoning/calculation in the step itself is correct, but the input is wrong due to an earlier major error
+
+MINOR ISSUES (-3 points each):
 - Typos or writing errors that don't affect the math
 - Informal language or abbreviations
 - Wrong terminology that doesn't affect the calculation
 - Skipped intermediate steps that are obvious
 - Notation inconsistencies
-
-MAJOR ISSUES (cascading scoring: first = -20 pts, each subsequent = -10 pts):
-- Wrong calculations or arithmetic errors
-- Incorrect geometric claims that contradict given information
-- Using unverified assumptions from visual appearance that turn out to be false
-- Invalid logical steps that break the reasoning chain
-- Using wrong formulas
-- Errors that directly affect the final answer
+- Unconventional but valid reasoning that seems unusual
+- Steps that are hard to read or unclear but appear to reach correct intermediate results
 
 Respond with JSON:
 {
@@ -230,10 +259,13 @@ Respond with JSON:
     "is_correct": true or false,
     "is_reasoning_valid": true or false,
     "minor_issues": [
-        {"description": "description of issue", "deduction": 2, "step_number": 1}
+        {"description": "description of issue", "type": "minor", "step_number": 1}
     ],
     "major_issues": [
-        {"description": "description of issue", "type": "root_cause" or "cascading", "step_number": 1}
+        {"description": "description of issue", "type": "major", "step_number": 1}
+    ],
+    "cascade_issues": [
+        {"description": "description of issue", "type": "cascade", "step_number": 1, "caused_by_step": 1}
     ],
     "summary": "Brief overall assessment (1-2 sentences)"
 }
@@ -242,8 +274,15 @@ IMPORTANT:
 - Extract ALL givens from Image 1, even if some seem obvious
 - Extract ALL steps from Image 2, even if handwriting is difficult
 - Provide honest confidence scores - lower scores for unclear text/handwriting
-- List major issues in order: root_cause first, then cascading issues
-- If the solution is completely correct with no issues, use empty arrays for minor_issues and major_issues"""
+- Classify issues correctly: major (root cause), cascade (caused by prior error), or minor (doesn't affect logic)
+- For cascade issues, specify which step caused them
+- If the solution is completely correct with no issues, use empty arrays for minor_issues, major_issues, and cascade_issues
+
+AVOID FALSE NEGATIVES:
+- Be extremely careful before marking major issues - ensure it's a true error, not just an alternative approach
+- Alternative valid approaches should NOT be penalized - mathematics allows multiple solution paths
+- If uncertain whether reasoning is "wrong" or "alternative", default to assuming it's alternative (no penalty or minor at most)
+- Focus on identifying clear mathematical errors, logical contradictions, or invalid claims - not stylistic differences"""
 
     async def _grade_direct(
         self,
@@ -256,7 +295,7 @@ IMPORTANT:
         messages = [
             {
                 "role": "system",
-                "content": "You are a fair and accurate math grader. You will receive two images: Image 1 is the PROBLEM, Image 2 is the STUDENT'S SOLUTION. Extract givens from Image 1, extract steps from Image 2, then evaluate the solution. Always provide confidence scores for your extractions."
+                "content": "You are a fair and accurate math grader. You will receive two images: Image 1 is the PROBLEM, Image 2 is the STUDENT'S SOLUTION. Extract givens from Image 1, extract steps from Image 2, then evaluate the solution. Always provide confidence scores for your extractions. IMPORTANT: Be very cautious before marking major issues - distinguish between actual errors and alternative valid approaches."
             },
             {"role": "user", "content": prompt}
         ]
@@ -288,7 +327,7 @@ If you need to verify a specific detail that you're uncertain about, you can use
         messages = [
             {
                 "role": "system",
-                "content": "You are a fair and accurate math grader. You will receive two images: Image 1 is the PROBLEM, Image 2 is the STUDENT'S SOLUTION. You can use the inspect_image tool if you need to verify specific details."
+                "content": "You are a fair and accurate math grader. You will receive two images: Image 1 is the PROBLEM, Image 2 is the STUDENT'S SOLUTION. You can use the inspect_image tool if you need to verify specific details. IMPORTANT: Be very cautious before marking major issues - distinguish between actual errors and alternative valid approaches."
             },
             {"role": "user", "content": tool_prompt}
         ]
@@ -406,7 +445,8 @@ Respond with JSON:
                     givens=[],
                     steps=[],
                     minor_issues=[],
-                    major_issues=[{"description": "Failed to parse LLM response", "deduction": max_points}],
+                    major_issues=[{"description": "Failed to parse LLM response", "type": "major"}],
+                    cascade_issues=[],
                     summary="Grading failed due to response parsing error",
                     raw_response={"raw": raw}
                 )
@@ -451,23 +491,25 @@ Respond with JSON:
         # Extract other fields
         minor_issues = result.get("minor_issues", [])
         major_issues = result.get("major_issues", [])
+        cascade_issues = result.get("cascade_issues", [])
 
-        # Calculate score with cascading major issue logic:
-        # - First major issue: -20 points
-        # - Each subsequent (cascading) major issue: -10 points
-        # - Continue until score reaches 0
-        minor_deduction = sum(issue.get("deduction", 2) for issue in minor_issues)
+        # Calculate score based on issue counts:
+        # - Major issues: -35 points each
+        # - Cascade issues: -10 points each
+        # - Minor issues: -3 points each
+        # - Deduct from 100 until score reaches 0
+        major_deduction = len(major_issues) * 35
+        cascade_deduction = len(cascade_issues) * 10
+        minor_deduction = len(minor_issues) * 3
 
-        major_deduction = 0
-        if len(major_issues) > 0:
-            major_deduction = 20  # First major issue
-            if len(major_issues) > 1:
-                major_deduction += 10 * (len(major_issues) - 1)  # Cascading issues
-
-        total_deduction = minor_deduction + major_deduction
+        total_deduction = major_deduction + cascade_deduction + minor_deduction
         total_score = max(0, max_points - total_deduction)
 
-        print(f"\n[SimpleLLMGrader] Score: {total_score}/{max_points} (minor: -{minor_deduction}, major: -{major_deduction} [{len(major_issues)} issue(s)])")
+        print(f"\n[SimpleLLMGrader] Score: {total_score}/{max_points}")
+        print(f"  - Major issues: {len(major_issues)} × -35 = -{major_deduction} pts")
+        print(f"  - Cascade issues: {len(cascade_issues)} × -10 = -{cascade_deduction} pts")
+        print(f"  - Minor issues: {len(minor_issues)} × -3 = -{minor_deduction} pts")
+        print(f"  - Total deduction: -{total_deduction} pts")
 
         return SimpleGradingResult(
             total_score=total_score,
@@ -481,6 +523,7 @@ Respond with JSON:
             steps=steps,
             minor_issues=minor_issues,
             major_issues=major_issues,
+            cascade_issues=cascade_issues,
             summary=result.get("summary", ""),
             raw_response=result
         )

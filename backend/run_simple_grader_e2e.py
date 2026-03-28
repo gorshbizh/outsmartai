@@ -106,8 +106,8 @@ async def run_simple_grader_test(
 
     print("\nRunning Simple LLM Grader...")
     print("  → Two-image mode: extracting givens from problem, steps from solution")
-    print("  → Minor issues: -2 points each")
-    print("  → Major issues: -20 pts (first) + -10 pts (cascading)")
+    print("  → Minor issues: -3 points each")
+    print("  → Major issues: -35 pts (first) + -10 pts (cascading)")
 
     try:
         from graders.simple_llm_grader import SimpleLLMGrader
@@ -333,7 +333,7 @@ async def main():
         print("   - Two-image mode: problem + solution")
         print("   - Extracts givens with confidence scores")
         print("   - Extracts steps with confidence scores")
-        print("   - Minor (-2) vs Major (-20/-10) issue classification")
+        print("   - Minor (-3) vs Major (-35/-10) issue classification")
     except Exception as e:
         print(f"❌ Failed to import app: {e}")
         import traceback
