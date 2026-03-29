@@ -49,17 +49,17 @@ def find_problem_solution_pairs(images_dir: Path) -> List[Tuple[Path, Path, str]
     Find pairs of (problem_image, solution_image, expected_result).
 
     Naming convention:
-    - geo_N.png or alg_N.png = problem image
-    - geo_N_c_*.png = correct solution (expect high score)
-    - geo_N_w_*.png = wrong solution (expect deductions)
+    - {prefix}_N.png = problem image (e.g., geo_1.png, alg_2.png, psda_3.png)
+    - {prefix}_N_c_*.png = correct solution (expect high score)
+    - {prefix}_N_w_*.png = wrong solution (expect deductions)
 
     Returns:
         List of (problem_path, solution_path, "correct" | "wrong")
     """
     pairs = []
 
-    # Find all problem images (geo_N.png, alg_N.png)
-    problem_pattern = re.compile(r'^(geo|alg)_(\d+)\.png$')
+    # Find all problem images - matches any prefix: geo_N.png, alg_N.png, psda_N.png, etc.
+    problem_pattern = re.compile(r'^([a-z]+)_(\d+)\.png$')
 
     for problem_path in images_dir.glob("*.png"):
         match = problem_pattern.match(problem_path.name)
@@ -313,9 +313,9 @@ async def main():
         print("❌ No problem-solution pairs found.")
         print(f"   Looked in: {images_dir}")
         print("\nExpected naming convention:")
-        print("   geo_N.png        - Problem image")
-        print("   geo_N_c_1.png    - Correct solution")
-        print("   geo_N_w_1.png    - Wrong solution")
+        print("   {prefix}_N.png        - Problem image (e.g., geo_1.png, alg_2.png, psda_3.png)")
+        print("   {prefix}_N_c_1.png    - Correct solution")
+        print("   {prefix}_N_w_1.png    - Wrong solution")
         return
 
     print(f"✓ Found {len(pairs)} test pair(s):")
