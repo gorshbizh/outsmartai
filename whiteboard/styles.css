@@ -317,6 +317,18 @@ main {
   font-weight: 600;
 }
 
+.grading-live-llm {
+  border-top: 1px solid var(--border);
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  font-weight: 500;
+  margin-top: 4px;
+  padding-top: 8px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .loading {
   display: flex;
   flex-direction: column;

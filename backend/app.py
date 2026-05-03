@@ -14,7 +14,7 @@ from datetime import datetime
 from dataclasses import dataclass, asdict
 from functools import wraps
 from pathlib import Path
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Callable, Dict, List, Any, Optional, Tuple
 from flask import Flask, request, jsonify, session, send_file, Response, stream_with_context
 from flask_cors import CORS
 from PIL import Image
@@ -2441,7 +2441,8 @@ class LLMService:
         image1_data: bytes,
         image2_data: bytes,
         model: str = "claude-opus-4-5",
-        temperature: float = 0.0
+        temperature: float = 0.0,
+        stream_callback: Optional[Callable[[str], None]] = None,
     ) -> Dict[str, Any]:
         """
         Chat with two images in the same request.
@@ -2460,7 +2461,14 @@ class LLMService:
             return self._mock_chat(messages)
 
         if self.provider == 'anthropic':
-            return await self._chat_with_two_images_anthropic(messages, image1_data, image2_data, model, temperature)
+            return await self._chat_with_two_images_anthropic(
+                messages,
+                image1_data,
+                image2_data,
+                model,
+                temperature,
+                stream_callback=stream_callback,
+            )
 
         try:
             from openai import OpenAI
@@ -2524,7 +2532,8 @@ class LLMService:
         image1_data: bytes,
         image2_data: bytes,
         model: str = "claude-opus-4-6",
-        temperature: float = 0.0
+        temperature: float = 0.0,
+        stream_callback: Optional[Callable[[str], None]] = None,
     ) -> Dict[str, Any]:
         """Chat with two images using Anthropic Claude."""
         import anthropic
@@ -2581,8 +2590,16 @@ class LLMService:
         if system_prompt:
             kwargs["system"] = system_prompt
 
-        response = client.messages.create(**kwargs)
-        content = response.content[0].text
+        if stream_callback:
+            chunks: List[str] = []
+            with client.messages.stream(**kwargs) as stream:
+                for text in stream.text_stream:
+                    chunks.append(text)
+                    stream_callback(text)
+            content = "".join(chunks)
+        else:
+            response = client.messages.create(**kwargs)
+            content = response.content[0].text
 
         try:
             return json.loads(content)
@@ -3824,6 +3841,7 @@ def run_simple_solution_grading(
     problem_image_data: bytes,
     solution_image_data: bytes,
     progress_callback=None,
+    llm_delta_callback=None,
     use_tool: bool = False,
 ) -> Dict[str, Any]:
     from graders.simple_llm_grader import SimpleLLMGrader
@@ -3849,6 +3867,7 @@ def run_simple_solution_grading(
                 max_points=100,
                 use_tool=use_tool,
                 progress_callback=progress_callback,
+                llm_delta_callback=llm_delta_callback,
             )
         )
         return {
@@ -3866,6 +3885,7 @@ def run_solution_grading(
     solution_image_path: str,
     grading_mode: str,
     progress_callback=None,
+    llm_delta_callback=None,
 ) -> Dict[str, Any]:
     problem_path = resolve_repo_path(problem_image_path)
     solution_path = resolve_repo_path(solution_image_path)
@@ -3882,6 +3902,7 @@ def run_solution_grading(
             problem_image_data=problem_image_data,
             solution_image_data=solution_image_data,
             progress_callback=progress_callback,
+            llm_delta_callback=llm_delta_callback,
             use_tool=False,
         )
 
@@ -4296,6 +4317,9 @@ def grade_saved_solution_stream(solution_id):
             def progress(message: str) -> None:
                 grading_events.put(("log", {"message": message}))
 
+            def llm_delta(text: str) -> None:
+                grading_events.put(("llm_delta", {"text": text}))
+
             def run_grader_worker() -> None:
                 try:
                     result = run_solution_grading(
@@ -4304,6 +4328,7 @@ def grade_saved_solution_stream(solution_id):
                         solution_image_path=final_image_path,
                         grading_mode=grading_mode,
                         progress_callback=progress,
+                        llm_delta_callback=llm_delta,
                     )
                     grading_events.put(("result", result))
                 except Exception as worker_exc:
@@ -4318,6 +4343,8 @@ def grade_saved_solution_stream(solution_id):
                 event_name, payload = grading_events.get()
                 if event_name == "log":
                     yield sse_event("log", payload)
+                elif event_name == "llm_delta":
+                    yield sse_event("llm_delta", payload)
                 elif event_name == "result":
                     grading_result = payload
                 elif event_name == "exception":

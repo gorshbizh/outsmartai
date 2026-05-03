@@ -117,6 +117,7 @@ class SimpleLLMGrader:
         max_points: int = 100,
         use_tool: bool = False,
         progress_callback: Optional[Callable[[str], None]] = None,
+        llm_delta_callback: Optional[Callable[[str], None]] = None,
     ) -> SimpleGradingResult:
         """
         Grade a student's geometry solution.
@@ -141,10 +142,10 @@ class SimpleLLMGrader:
 
         if use_tool:
             self._emit(progress_callback, "[SimpleLLMGrader] Using two-image mode with tools (problem + solution)")
-            result = await self._grade_with_tool(prompt, solution_image, problem_image)
+            result = await self._grade_with_tool(prompt, solution_image, problem_image, llm_delta_callback)
         else:
             self._emit(progress_callback, "[SimpleLLMGrader] Using two-image mode (problem + solution)")
-            result = await self._grade_direct(prompt, solution_image, problem_image)
+            result = await self._grade_direct(prompt, solution_image, problem_image, llm_delta_callback)
 
         return self._parse_result(result, max_points, progress_callback=progress_callback)
 
@@ -296,7 +297,8 @@ AVOID FALSE NEGATIVES:
         self,
         prompt: str,
         solution_image: bytes,
-        problem_image: bytes
+        problem_image: bytes,
+        llm_delta_callback: Optional[Callable[[str], None]] = None,
     ) -> Dict[str, Any]:
         """Grade using two-image mode (always)."""
 
@@ -314,7 +316,8 @@ AVOID FALSE NEGATIVES:
             image1_data=problem_image,
             image2_data=solution_image,
             model=self.model,
-            temperature=0.0
+            temperature=0.0,
+            stream_callback=llm_delta_callback,
         )
 
         return result
@@ -323,7 +326,8 @@ AVOID FALSE NEGATIVES:
         self,
         prompt: str,
         solution_image: bytes,
-        problem_image: bytes
+        problem_image: bytes,
+        llm_delta_callback: Optional[Callable[[str], None]] = None,
     ) -> Dict[str, Any]:
         """Grade with optional image inspection tool available."""
 
@@ -345,7 +349,8 @@ If you need to verify a specific detail that you're uncertain about, you can use
             image1_data=problem_image,
             image2_data=solution_image,
             model=self.model,
-            temperature=0.0
+            temperature=0.0,
+            stream_callback=llm_delta_callback,
         )
 
         # Handle tool calls if any

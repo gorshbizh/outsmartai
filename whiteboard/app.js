@@ -95,6 +95,7 @@ let isSubmittingGrade = false;
 let readOnlyMode = false;
 let paperImage = null;
 let paperImageSource = null;
+let gradingLiveLine = null;
 
 // Fixed canvas dimensions (set once at page load)
 let fixedCanvasWidth = 0;
@@ -1341,6 +1342,10 @@ async function gradeSolutionWithStream(solutionId) {
       }
       return;
     }
+    if (eventName === 'llm_delta') {
+      appendGradingToken(payload.text);
+      return;
+    }
     if (eventName === 'complete') {
       completedPayload = payload;
     }
@@ -1575,8 +1580,22 @@ function appendGradingStreamLine(message) {
   gradingStream.scrollTop = gradingStream.scrollHeight;
 }
 
+function appendGradingToken(text) {
+  if (!gradingStream || !text) return;
+  gradingStream.classList.remove('hidden');
+  if (!gradingLiveLine) {
+    gradingLiveLine = document.createElement('div');
+    gradingLiveLine.className = 'grading-stream-line grading-live-llm';
+    gradingLiveLine.textContent = 'LLM response:\n';
+    gradingStream.appendChild(gradingLiveLine);
+  }
+  gradingLiveLine.textContent += text;
+  gradingStream.scrollTop = gradingStream.scrollHeight;
+}
+
 function resetGradingDialogForStream() {
   hideResultsPanel();
+  gradingLiveLine = null;
   if (gradingStream) {
     gradingStream.innerHTML = '';
     gradingStream.classList.remove('hidden');
