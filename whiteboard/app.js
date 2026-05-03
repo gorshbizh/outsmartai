@@ -50,7 +50,7 @@ const suggestionsList = document.getElementById('suggestions-list');
 const confidenceFill = document.getElementById('confidence-fill');
 const confidenceText = document.getElementById('confidence-text');
 const gradingDialog = document.getElementById('grading-dialog');
-const closeGradingBtn = document.getElementById('close-grading');
+const gradingBackdrop = document.getElementById('grading-backdrop');
 const gradingScore = document.getElementById('grading-score');
 const gradingSummary = document.getElementById('grading-summary');
 const gradingMajorList = document.getElementById('grading-major-list');
@@ -59,6 +59,12 @@ const gradingStepList = document.getElementById('grading-step-list');
 const gradingConfidenceFill = document.getElementById('grading-confidence-fill');
 const gradingConfidenceText = document.getElementById('grading-confidence-text');
 const gradingStream = document.getElementById('grading-stream');
+const scoreFeedbackHistory = document.getElementById('score-feedback-history');
+const rightGradingBtn = document.getElementById('right-grading-btn');
+const wrongGradingBtn = document.getElementById('wrong-grading-btn');
+const scoreFeedbackForm = document.getElementById('score-feedback-form');
+const scoreFeedbackText = document.getElementById('score-feedback-text');
+const scoreFeedbackMessage = document.getElementById('score-feedback-message');
 const solutionBrowser = document.getElementById('solution-browser');
 const whiteboardDraftList = document.getElementById('whiteboard-draft-list');
 const whiteboardFinalList = document.getElementById('whiteboard-final-list');
@@ -96,6 +102,10 @@ let readOnlyMode = false;
 let paperImage = null;
 let paperImageSource = null;
 let gradingLiveLine = null;
+let activeScoreSolution = null;
+let pendingScoreFeedbackRating = null;
+let scoreInteractionLog = [];
+let requestedFeedbackId = null;
 
 // Fixed canvas dimensions (set once at page load)
 let fixedCanvasWidth = 0;
@@ -1174,6 +1184,7 @@ async function loadWhiteboardContext() {
   const params = new URLSearchParams(window.location.search);
   const solutionId = params.get('solution_id');
   const problemId = params.get('problem_id');
+  requestedFeedbackId = params.get('feedback_id');
   if (!solutionId && !problemId) {
     window.location.href = '/progress.html';
     return;
@@ -1196,6 +1207,7 @@ async function loadWhiteboardContext() {
         data.solution.grading_result,
         data.solution.grading_steps,
         data.solution,
+        { focusFeedbackId: requestedFeedbackId },
       );
     }
   } catch (error) {
@@ -1333,9 +1345,11 @@ async function gradeSolutionWithStream(solutionId) {
     if (!dataLines.length) return;
     const payload = JSON.parse(dataLines.join('\n'));
     if (eventName === 'error') {
+      recordScoreInteraction('grading_error', payload);
       throw new Error(payload.error || 'Grading failed');
     }
     if (eventName === 'status' || eventName === 'log') {
+      recordScoreInteraction(eventName, { message: payload.message });
       appendGradingStreamLine(payload.message);
       if (gradingSummary && payload.message) {
         gradingSummary.textContent = payload.message;
@@ -1343,10 +1357,12 @@ async function gradeSolutionWithStream(solutionId) {
       return;
     }
     if (eventName === 'llm_delta') {
+      recordScoreInteraction('llm_delta', { text: payload.text });
       appendGradingToken(payload.text);
       return;
     }
     if (eventName === 'complete') {
+      recordScoreInteraction('grading_complete', { solution_id: payload.solution?.id });
       completedPayload = payload;
     }
   };
@@ -1475,25 +1491,12 @@ if (analyzeBtn) {
 closeResultsBtn.addEventListener('click', () => {
   hideResultsPanel();
 });
-if (closeGradingBtn) {
-  closeGradingBtn.addEventListener('click', () => {
-    hideGradingDialog();
-  });
-}
-
 // Close panel when clicking outside
 resultsPanel.addEventListener('click', (e) => {
   if (e.target === resultsPanel) {
     hideResultsPanel();
   }
 });
-if (gradingDialog) {
-  gradingDialog.addEventListener('click', (e) => {
-    if (e.target === gradingDialog) {
-      hideGradingDialog();
-    }
-  });
-}
 if (saveDraftDialog) {
   saveDraftDialog.addEventListener('click', (e) => {
     if (e.target === saveDraftDialog) {
@@ -1509,7 +1512,6 @@ document.addEventListener('keydown', (e) => {
     return;
   }
   if (e.key === 'Escape' && gradingDialog && !gradingDialog.classList.contains('hidden')) {
-    hideGradingDialog();
     return;
   }
   if (e.key === 'Escape' && !resultsPanel.classList.contains('hidden')) {
@@ -1562,11 +1564,30 @@ function showGradingDialog() {
   if (gradingDialog) {
     gradingDialog.classList.remove('hidden');
   }
+  if (gradingBackdrop) {
+    gradingBackdrop.classList.remove('hidden');
+  }
+  recordScoreInteraction('score_dialog_opened', { solution_id: activeScoreSolution?.id || null });
 }
 
 function hideGradingDialog() {
   if (gradingDialog) {
     gradingDialog.classList.add('hidden');
+  }
+  if (gradingBackdrop) {
+    gradingBackdrop.classList.add('hidden');
+  }
+  recordScoreInteraction('score_dialog_closed', { solution_id: activeScoreSolution?.id || null });
+}
+
+function recordScoreInteraction(type, payload = {}) {
+  scoreInteractionLog.push({
+    type,
+    payload,
+    timestamp: new Date().toISOString(),
+  });
+  if (scoreInteractionLog.length > 500) {
+    scoreInteractionLog = scoreInteractionLog.slice(-500);
   }
 }
 
@@ -1596,10 +1617,18 @@ function appendGradingToken(text) {
 function resetGradingDialogForStream() {
   hideResultsPanel();
   gradingLiveLine = null;
+  activeScoreSolution = null;
+  pendingScoreFeedbackRating = null;
+  scoreInteractionLog = [];
   if (gradingStream) {
     gradingStream.innerHTML = '';
     gradingStream.classList.remove('hidden');
   }
+  if (scoreFeedbackForm) scoreFeedbackForm.classList.add('hidden');
+  if (scoreFeedbackText) scoreFeedbackText.value = '';
+  if (scoreFeedbackMessage) scoreFeedbackMessage.textContent = '';
+  if (rightGradingBtn) rightGradingBtn.disabled = true;
+  if (wrongGradingBtn) wrongGradingBtn.disabled = true;
   if (gradingScore) gradingScore.textContent = 'Grading...';
   if (gradingSummary) gradingSummary.textContent = 'Waiting for the grader to start.';
   setIssueList(gradingMajorList, [], 'No major deductions have been reported yet.');
@@ -1649,6 +1678,123 @@ function setIssueList(listElement, items, emptyMessage) {
   listElement.appendChild(li);
 }
 
+function renderScoreFeedbackHistory(items = [], focusFeedbackId = null) {
+  if (!scoreFeedbackHistory) return;
+  scoreFeedbackHistory.innerHTML = '';
+  if (!Array.isArray(items) || items.length === 0) {
+    const empty = document.createElement('p');
+    empty.className = 'empty-solution';
+    empty.textContent = 'No feedback has been recorded yet.';
+    scoreFeedbackHistory.appendChild(empty);
+    return;
+  }
+
+  let focusElement = null;
+  items.forEach(item => {
+    const row = document.createElement('article');
+    row.className = `score-feedback-history-item ${item.rating === 'right' ? 'feedback-history-right' : 'feedback-history-wrong'}`;
+    row.dataset.feedbackId = String(item.id);
+
+    const header = document.createElement('div');
+    header.className = 'score-feedback-history-header';
+    const rating = document.createElement('strong');
+    rating.textContent = item.rating === 'right' ? 'Right Grading' : 'Wrong Grading';
+    const time = document.createElement('time');
+    time.textContent = item.created_at ? new Date(item.created_at).toLocaleString() : '';
+    header.appendChild(rating);
+    header.appendChild(time);
+
+    const text = document.createElement('p');
+    text.textContent = item.feedback_text || '(No written feedback)';
+
+    row.appendChild(header);
+    row.appendChild(text);
+    scoreFeedbackHistory.appendChild(row);
+
+    if (focusFeedbackId && String(item.id) === String(focusFeedbackId)) {
+      focusElement = row;
+    }
+  });
+
+  const target = focusElement || scoreFeedbackHistory.firstElementChild;
+  if (target) {
+    target.classList.add('feedback-history-focused');
+    target.scrollIntoView({ block: 'nearest' });
+  }
+}
+
+async function loadScoreFeedbackHistory(scoreSolutionId, focusFeedbackId = null) {
+  if (!scoreFeedbackHistory || !scoreSolutionId) return;
+  scoreFeedbackHistory.innerHTML = '<p class="empty-solution">Loading feedback...</p>';
+  try {
+    const data = await apiRequest(`/api/solutions/${encodeURIComponent(scoreSolutionId)}/feedback`);
+    renderScoreFeedbackHistory(data.feedback_items, focusFeedbackId);
+  } catch (error) {
+    scoreFeedbackHistory.innerHTML = '';
+    const message = document.createElement('p');
+    message.className = 'empty-solution';
+    message.textContent = error.message;
+    scoreFeedbackHistory.appendChild(message);
+  }
+}
+
+function beginScoreFeedback(rating) {
+  if (!activeScoreSolution) return;
+  pendingScoreFeedbackRating = rating;
+  recordScoreInteraction('score_feedback_rating_selected', {
+    solution_id: activeScoreSolution.id,
+    rating,
+  });
+  if (scoreFeedbackForm) scoreFeedbackForm.classList.remove('hidden');
+  if (scoreFeedbackMessage) {
+    scoreFeedbackMessage.textContent = rating === 'right'
+      ? 'Optional: tell us what made this grading useful.'
+      : 'Optional: tell us what the grader missed or got wrong.';
+  }
+  if (scoreFeedbackText) {
+    scoreFeedbackText.focus();
+  }
+}
+
+if (rightGradingBtn) {
+  rightGradingBtn.addEventListener('click', () => beginScoreFeedback('right'));
+}
+
+if (wrongGradingBtn) {
+  wrongGradingBtn.addEventListener('click', () => beginScoreFeedback('wrong'));
+}
+
+if (scoreFeedbackForm) {
+  scoreFeedbackForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (!activeScoreSolution || !pendingScoreFeedbackRating) return;
+    const feedbackText = (scoreFeedbackText?.value || '').trim();
+    recordScoreInteraction('score_feedback_confirmed', {
+      solution_id: activeScoreSolution.id,
+      rating: pendingScoreFeedbackRating,
+      has_feedback_text: Boolean(feedbackText),
+    });
+    recordScoreInteraction('score_dialog_closed_after_feedback', {
+      solution_id: activeScoreSolution.id,
+    });
+    try {
+      if (scoreFeedbackMessage) scoreFeedbackMessage.textContent = 'Saving feedback...';
+      await apiRequest(`/api/solutions/${encodeURIComponent(activeScoreSolution.id)}/feedback`, {
+        method: 'POST',
+        body: JSON.stringify({
+          rating: pendingScoreFeedbackRating,
+          feedback_text: feedbackText,
+          interaction_log: scoreInteractionLog,
+        }),
+      });
+      await loadScoreFeedbackHistory(activeScoreSolution.id);
+      hideGradingDialog();
+    } catch (error) {
+      if (scoreFeedbackMessage) scoreFeedbackMessage.textContent = error.message;
+    }
+  });
+}
+
 function displayResults(analysis) {
   hideGradingDialog();
   if (resultsTitle) resultsTitle.textContent = 'AI Analysis Results';
@@ -1679,8 +1825,16 @@ function displayResults(analysis) {
   showResults();
 }
 
-function displayGradingResults(gradingResult, gradingSteps = [], gradedSolution = null) {
+function displayGradingResults(gradingResult, gradingSteps = [], gradedSolution = null, options = {}) {
   hideResultsPanel();
+  activeScoreSolution = gradedSolution || activeScoreSolution;
+  pendingScoreFeedbackRating = null;
+  if (scoreFeedbackForm) scoreFeedbackForm.classList.add('hidden');
+  if (scoreFeedbackText) scoreFeedbackText.value = '';
+  if (scoreFeedbackMessage) scoreFeedbackMessage.textContent = '';
+  if (rightGradingBtn) rightGradingBtn.disabled = !activeScoreSolution;
+  if (wrongGradingBtn) wrongGradingBtn.disabled = !activeScoreSolution;
+  recordScoreInteraction('score_result_displayed', { solution_id: activeScoreSolution?.id || null });
   const result = gradingResult?.result || gradingResult?.score || gradingResult || {};
   const { score, maxScore } = scoreFromGradingPayload(gradedSolution, gradingResult);
   const summary = result.summary || gradingResult?.summary || gradingResult?.score?.summary || 'The grading result has been saved.';
@@ -1734,10 +1888,18 @@ function displayGradingResults(gradingResult, gradingSteps = [], gradedSolution 
   }
 
   showGradingDialog();
+  if (activeScoreSolution) {
+    loadScoreFeedbackHistory(activeScoreSolution.id, options.focusFeedbackId);
+  } else {
+    renderScoreFeedbackHistory([]);
+  }
 }
 
 /* Keyboard shortcuts */
 window.addEventListener('keydown', (e) => {
+  if (gradingDialog && !gradingDialog.classList.contains('hidden')) {
+    return;
+  }
   // Undo: Ctrl+Z, Redo: Ctrl+Y or Ctrl+Shift+Z
   const ctrl = e.ctrlKey || e.metaKey;
   if (ctrl && e.key.toLowerCase() === 'z') {

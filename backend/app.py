@@ -4192,6 +4192,58 @@ def delete_solution(solution_id):
     return jsonify({"success": True, **deleted})
 
 
+@app.route('/api/solutions/<solution_id>/feedback', methods=['POST'])
+@login_required
+def save_score_feedback(solution_id):
+    data = request.get_json(silent=True) or {}
+    rating = (data.get("rating") or "").strip().lower()
+    feedback_text = (data.get("feedback_text") or "").strip()
+    interaction_log = data.get("interaction_log")
+    if not isinstance(interaction_log, list):
+        interaction_log = []
+
+    try:
+        feedback = repo.create_score_feedback(
+            user_id=request.user["id"],
+            score_solution_id=solution_id,
+            rating=rating,
+            feedback_text=feedback_text,
+            interaction_log=interaction_log,
+        )
+    except ValueError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
+    except DatabaseUnavailable as exc:
+        return db_error_response(exc)
+
+    return jsonify({"success": True, "feedback": feedback})
+
+
+@app.route('/api/solutions/<solution_id>/feedback', methods=['GET'])
+@login_required
+def list_score_feedback(solution_id):
+    try:
+        feedback_items = repo.list_score_feedback(request.user["id"], solution_id)
+    except ValueError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 404
+    except DatabaseUnavailable as exc:
+        return db_error_response(exc)
+
+    return jsonify({"success": True, "feedback_items": feedback_items})
+
+
+@app.route('/api/score-feedback/<int:feedback_id>', methods=['DELETE'])
+@login_required
+def delete_score_feedback(feedback_id):
+    try:
+        deleted = repo.delete_score_feedback(request.user["id"], feedback_id)
+    except ValueError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 404
+    except DatabaseUnavailable as exc:
+        return db_error_response(exc)
+
+    return jsonify({"success": True, **deleted})
+
+
 @app.route('/api/solutions/<solution_id>/grade', methods=['POST'])
 @login_required
 def grade_saved_solution(solution_id):

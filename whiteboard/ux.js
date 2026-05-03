@@ -233,6 +233,66 @@ function createSolutionChip(solution, label, className, options = {}) {
   return chip;
 }
 
+function feedbackLabel(feedback) {
+  const rating = feedback.rating === 'right' ? 'right' : 'wrong';
+  const text = (feedback.feedback_text || '').trim();
+  if (!text) return rating;
+  return `${rating}: ${text.length > 48 ? `${text.slice(0, 48)}...` : text}`;
+}
+
+function createFeedbackChip(feedback, onRefresh) {
+  const chip = document.createElement('span');
+  chip.className = `feedback-chip ${feedback.rating === 'right' ? 'feedback-chip-right' : 'feedback-chip-wrong'}`;
+  const label = document.createElement('a');
+  label.href = `/whiteboard.html?solution_id=${encodeURIComponent(feedback.score_solution_id)}&feedback_id=${encodeURIComponent(feedback.id)}`;
+  label.className = 'feedback-label';
+  label.title = feedback.feedback_text || feedback.rating;
+  label.textContent = feedbackLabel(feedback);
+  chip.appendChild(label);
+
+  const deleteButton = document.createElement('button');
+  deleteButton.type = 'button';
+  deleteButton.className = 'delete-solution delete-feedback';
+  deleteButton.setAttribute('aria-label', `Delete ${feedback.rating} feedback`);
+  deleteButton.title = 'Delete feedback';
+  deleteButton.textContent = 'x';
+  deleteButton.addEventListener('click', async () => {
+    if (!window.confirm('Delete this feedback?')) return;
+    deleteButton.disabled = true;
+    try {
+      await apiRequest(`/api/score-feedback/${encodeURIComponent(feedback.id)}`, { method: 'DELETE' });
+      await onRefresh();
+    } catch (error) {
+      deleteButton.disabled = false;
+      window.alert(error.message);
+    }
+  });
+  chip.appendChild(deleteButton);
+  return chip;
+}
+
+function createFeedbackRow(score, onRefresh) {
+  const row = document.createElement('div');
+  row.className = 'solution-row feedback-child-row';
+  const label = document.createElement('span');
+  label.className = 'solution-label';
+  label.textContent = 'feedback';
+  row.appendChild(label);
+
+  const feedbackItems = Array.isArray(score.feedback_items) ? score.feedback_items : [];
+  if (feedbackItems.length) {
+    feedbackItems.forEach(feedback => {
+      row.appendChild(createFeedbackChip(feedback, onRefresh));
+    });
+  } else {
+    const empty = document.createElement('span');
+    empty.className = 'empty-solution';
+    empty.textContent = 'no feedback';
+    row.appendChild(empty);
+  }
+  return row;
+}
+
 function renderProblem(problem, onRefresh) {
   const article = document.createElement('article');
   article.className = 'problem-item';
@@ -284,16 +344,20 @@ function renderProblem(problem, onRefresh) {
       draftGroup.appendChild(draftRow);
 
       const scores = Array.isArray(draft.score_solutions) ? draft.score_solutions : [];
-      const scoreRow = document.createElement('div');
-      scoreRow.className = 'solution-row score-child-row';
-      const scoreLabelElement = document.createElement('span');
-      scoreLabelElement.className = 'solution-label';
-      scoreLabelElement.textContent = 'scores';
-      scoreRow.appendChild(scoreLabelElement);
+      const scoreList = document.createElement('div');
+      scoreList.className = 'score-list';
 
       if (scores.length) {
         scores.forEach(score => {
-          scoreRow.appendChild(createSolutionChip(
+          const scoreGroup = document.createElement('div');
+          scoreGroup.className = 'score-feedback-group';
+          const scoreLine = document.createElement('div');
+          scoreLine.className = 'solution-row score-tree-row';
+          const scoreLabelElement = document.createElement('span');
+          scoreLabelElement.className = 'solution-label';
+          scoreLabelElement.textContent = 'score';
+          scoreLine.appendChild(scoreLabelElement);
+          scoreLine.appendChild(createSolutionChip(
             score,
             scoreLabel(score),
             'solution-link user-solution',
@@ -304,15 +368,25 @@ function renderProblem(problem, onRefresh) {
               confirmMessage: 'Delete this score?',
             },
           ));
+          scoreGroup.appendChild(scoreLine);
+          scoreGroup.appendChild(createFeedbackRow(score, onRefresh));
+          scoreList.appendChild(scoreGroup);
         });
       } else {
+        const scoreRow = document.createElement('div');
+        scoreRow.className = 'score-tree-row';
+        const scoreLabelElement = document.createElement('span');
+        scoreLabelElement.className = 'solution-label';
+        scoreLabelElement.textContent = 'score';
+        scoreRow.appendChild(scoreLabelElement);
         const emptyScore = document.createElement('span');
         emptyScore.className = 'empty-solution';
         emptyScore.textContent = 'no score';
         scoreRow.appendChild(emptyScore);
+        scoreList.appendChild(scoreRow);
       }
 
-      draftGroup.appendChild(scoreRow);
+      draftGroup.appendChild(scoreList);
       draftTree.appendChild(draftGroup);
     });
   } else {
@@ -324,13 +398,23 @@ function renderProblem(problem, onRefresh) {
 
   if (unattachedScores.length) {
     const orphanRow = document.createElement('div');
-    orphanRow.className = 'solution-row score-child-row unattached-score-row';
+    orphanRow.className = 'unattached-score-row';
     const orphanLabel = document.createElement('span');
     orphanLabel.className = 'solution-label';
     orphanLabel.textContent = 'scores without draft';
     orphanRow.appendChild(orphanLabel);
+    const scoreList = document.createElement('div');
+    scoreList.className = 'score-list';
     unattachedScores.forEach(score => {
-      orphanRow.appendChild(createSolutionChip(
+      const scoreGroup = document.createElement('div');
+      scoreGroup.className = 'score-feedback-group';
+      const scoreLine = document.createElement('div');
+      scoreLine.className = 'solution-row score-tree-row';
+      const scoreLabelElement = document.createElement('span');
+      scoreLabelElement.className = 'solution-label';
+      scoreLabelElement.textContent = 'score';
+      scoreLine.appendChild(scoreLabelElement);
+      scoreLine.appendChild(createSolutionChip(
         score,
         scoreLabel(score),
         'solution-link user-solution',
@@ -341,7 +425,11 @@ function renderProblem(problem, onRefresh) {
           confirmMessage: 'Delete this score?',
         },
       ));
+      scoreGroup.appendChild(scoreLine);
+      scoreGroup.appendChild(createFeedbackRow(score, onRefresh));
+      scoreList.appendChild(scoreGroup);
     });
+    orphanRow.appendChild(scoreList);
     draftTree.appendChild(orphanRow);
   }
 

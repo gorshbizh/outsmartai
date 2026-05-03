@@ -608,6 +608,18 @@ def _solution_payload(row: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _score_feedback_payload(row: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "id": row["id"],
+        "score_solution_id": row["score_solution_id"],
+        "user_id": row.get("user_id"),
+        "rating": row.get("rating"),
+        "feedback_text": row.get("feedback_text") or "",
+        "interaction_log": _load_json(row.get("interaction_log")),
+        "created_at": row.get("created_at").isoformat() if row.get("created_at") else None,
+    }
+
+
 class AppRepository:
     def ensure_seed_user(
         self,
@@ -790,6 +802,7 @@ class AppRepository:
 
         draft_lists_by_problem: Dict[str, List[Dict[str, Any]]] = {}
         final_lists_by_problem: Dict[str, List[Dict[str, Any]]] = {}
+        feedback_lists_by_score: Dict[str, List[Dict[str, Any]]] = {}
         if problem_rows:
             with get_connection() as conn:
                 with conn.cursor() as cursor:
@@ -870,11 +883,43 @@ class AppRepository:
                             _solution_payload(row) for row in cursor.fetchall()
                         ]
 
+                    score_ids = [
+                        score["id"]
+                        for scores in final_lists_by_problem.values()
+                        for score in scores
+                    ]
+                    if score_ids:
+                        placeholders = ", ".join(["%s"] * len(score_ids))
+                        cursor.execute(
+                            f"""
+                            SELECT
+                              sf.id,
+                              sf.score_solution_id,
+                              sf.user_id,
+                              sf.rating,
+                              sf.feedback_text,
+                              sf.interaction_log,
+                              sf.created_at
+                            FROM score_feedback sf
+                            JOIN solutions s ON s.id = sf.score_solution_id
+                            WHERE sf.user_id = %s
+                              AND s.user_id = %s
+                              AND sf.score_solution_id IN ({placeholders})
+                            ORDER BY sf.created_at DESC, sf.id DESC
+                            """,
+                            tuple([user_id, user_id, *score_ids]),
+                        )
+                        for row in cursor.fetchall():
+                            feedback = _score_feedback_payload(row)
+                            feedback_lists_by_score.setdefault(feedback["score_solution_id"], []).append(feedback)
+
         items = []
         for problem in problem_rows:
             payload = _problem_payload(problem)
             draft_solutions = draft_lists_by_problem.get(problem["id"], [])
             final_solutions = final_lists_by_problem.get(problem["id"], [])
+            for score in final_solutions:
+                score["feedback_items"] = feedback_lists_by_score.get(score["id"], [])
             scores_by_draft: Dict[str, List[Dict[str, Any]]] = {}
             unattached_scores: List[Dict[str, Any]] = []
             for score in final_solutions:
@@ -1024,6 +1069,138 @@ class AppRepository:
             "deleted_ids": deleted_ids,
             "image_paths": image_paths,
             "deleted_solution_type": solution.get("solution_type"),
+        }
+
+    def create_score_feedback(
+        self,
+        user_id: int,
+        score_solution_id: str,
+        rating: str,
+        feedback_text: Optional[str] = None,
+        interaction_log: Optional[List[Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
+        if rating not in {"right", "wrong"}:
+            raise ValueError("rating must be right or wrong")
+
+        solution = self.get_solution(score_solution_id, user_id=user_id)
+        if not solution:
+            raise ValueError("Score not found")
+        if solution.get("solution_type") != "graded":
+            raise ValueError("Feedback can only be saved for a score")
+
+        with get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO score_feedback
+                      (score_solution_id, user_id, rating, feedback_text, interaction_log)
+                    VALUES (%s, %s, %s, %s, %s)
+                    """,
+                    (
+                        score_solution_id,
+                        user_id,
+                        rating,
+                        feedback_text or None,
+                        _json_or_none(interaction_log or []),
+                    ),
+                )
+                feedback_id = cursor.lastrowid
+                cursor.execute(
+                    """
+                    INSERT INTO solution_events
+                      (solution_id, problem_id, user_id, event_type, payload, image_path)
+                    VALUES (%s, %s, %s, 'score_feedback', %s, NULL)
+                    """,
+                    (
+                        score_solution_id,
+                        solution["problem_id"],
+                        user_id,
+                        _json_or_none({
+                            "feedback_id": feedback_id,
+                            "rating": rating,
+                            "has_feedback_text": bool(feedback_text),
+                        }),
+                    ),
+                )
+
+        return {
+            "id": feedback_id,
+            "score_solution_id": score_solution_id,
+            "user_id": user_id,
+            "rating": rating,
+            "feedback_text": feedback_text or "",
+        }
+
+    def list_score_feedback(self, user_id: int, score_solution_id: str) -> List[Dict[str, Any]]:
+        solution = self.get_solution(score_solution_id, user_id=user_id)
+        if not solution:
+            raise ValueError("Score not found")
+        if solution.get("solution_type") != "graded":
+            raise ValueError("Feedback can only be listed for a score")
+
+        with get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT id, score_solution_id, user_id, rating, feedback_text, interaction_log, created_at
+                    FROM score_feedback
+                    WHERE score_solution_id = %s
+                      AND user_id = %s
+                    ORDER BY created_at DESC, id DESC
+                    """,
+                    (score_solution_id, user_id),
+                )
+                rows = cursor.fetchall()
+        return [_score_feedback_payload(row) for row in rows]
+
+    def delete_score_feedback(self, user_id: int, feedback_id: int) -> Dict[str, Any]:
+        with get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT sf.id, sf.score_solution_id, sf.rating, s.problem_id
+                    FROM score_feedback sf
+                    JOIN solutions s ON s.id = sf.score_solution_id
+                    WHERE sf.id = %s
+                      AND sf.user_id = %s
+                      AND s.user_id = %s
+                    """,
+                    (feedback_id, user_id, user_id),
+                )
+                row = cursor.fetchone()
+                if not row:
+                    raise ValueError("Feedback not found")
+
+                cursor.execute(
+                    """
+                    DELETE FROM score_feedback
+                    WHERE id = %s AND user_id = %s
+                    """,
+                    (feedback_id, user_id),
+                )
+                if cursor.rowcount != 1:
+                    raise ValueError("Feedback not found")
+
+                cursor.execute(
+                    """
+                    INSERT INTO solution_events
+                      (solution_id, problem_id, user_id, event_type, payload, image_path)
+                    VALUES (%s, %s, %s, 'score_feedback_deleted', %s, NULL)
+                    """,
+                    (
+                        row["score_solution_id"],
+                        row["problem_id"],
+                        user_id,
+                        _json_or_none({
+                            "feedback_id": row["id"],
+                            "rating": row.get("rating"),
+                        }),
+                    ),
+                )
+
+        return {
+            "deleted_feedback_id": feedback_id,
+            "score_solution_id": row["score_solution_id"],
         }
 
     def get_solution(

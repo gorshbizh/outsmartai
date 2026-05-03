@@ -68,3 +68,17 @@ CREATE TABLE IF NOT EXISTS solution_events (
   INDEX idx_solution_events_solution_time (solution_id, created_at),
   INDEX idx_solution_events_user_problem_time (user_id, problem_id, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS score_feedback (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  score_solution_id VARCHAR(120) NOT NULL,
+  user_id INT NOT NULL,
+  rating ENUM('right', 'wrong') NOT NULL,
+  feedback_text TEXT NULL,
+  interaction_log JSON NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_score_feedback_score FOREIGN KEY (score_solution_id) REFERENCES solutions(id) ON DELETE CASCADE,
+  CONSTRAINT fk_score_feedback_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  INDEX idx_score_feedback_score_time (score_solution_id, created_at),
+  INDEX idx_score_feedback_user_time (user_id, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

@@ -121,10 +121,10 @@
     </div>
   </div>
 
-  <div id="grading-dialog" class="results-panel hidden" role="dialog" aria-modal="true" aria-labelledby="grading-title">
+  <div id="grading-backdrop" class="modal-backdrop hidden"></div>
+  <div id="grading-dialog" class="results-panel hidden blocking-dialog" role="dialog" aria-modal="true" aria-labelledby="grading-title">
     <div class="results-header">
       <h3 id="grading-title">Score</h3>
-      <button id="close-grading" class="close-btn" type="button">&times;</button>
     </div>
     <div class="results-content">
       <div id="grading-stream" class="grading-stream hidden" role="status" aria-live="polite"></div>
@@ -154,6 +154,24 @@
           <div id="grading-confidence-fill"></div>
           <span id="grading-confidence-text">-</span>
         </div>
+      </div>
+      <div class="result-section">
+        <h4>Feedback History</h4>
+        <div id="score-feedback-history" class="score-feedback-history"></div>
+      </div>
+      <div id="score-feedback-panel" class="score-feedback-panel">
+        <div id="score-feedback-actions" class="score-feedback-actions">
+          <button id="right-grading-btn" type="button" class="feedback-right">Right Grading</button>
+          <button id="wrong-grading-btn" type="button" class="feedback-wrong">Wrong Grading</button>
+        </div>
+        <form id="score-feedback-form" class="score-feedback-form hidden">
+          <label for="score-feedback-text">Feedback</label>
+          <div class="score-feedback-entry">
+            <textarea id="score-feedback-text" rows="3" maxlength="2000"></textarea>
+            <button id="confirm-score-feedback" type="submit">Confirm</button>
+          </div>
+          <p id="score-feedback-message" class="muted-copy"></p>
+        </form>
       </div>
     </div>
   </div>
