@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OutSmartAI Home</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body data-page="home" class="ux-page">
+  <header class="shell-header">
+    <a class="brand" href="/home.html">OutSmartAI</a>
+    <nav class="shell-nav" aria-label="Primary">
+      <a href="/user_info.html">user_info</a>
+      <a href="/progress.html">progress</a>
+      <button id="logoutBtn" type="button" class="button-secondary">Logout</button>
+    </nav>
+  </header>
+  <main class="shell-main">
+    <section class="page-heading">
+      <p class="eyebrow">Home</p>
+      <h1 id="welcomeTitle">Welcome</h1>
+    </section>
+    <section class="home-links" aria-label="Home links">
+      <a class="home-link" href="/user_info.html">
+        <span>user_info</span>
+        <small>Account details</small>
+      </a>
+      <a class="home-link" href="/progress.html">
+        <span>progress</span>
+        <small>Problems and solutions</small>
+      </a>
+    </section>
+  </main>
+  <script src="ux.js"></script>
+</body>
+</html>

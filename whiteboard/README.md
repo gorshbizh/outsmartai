@@ -1,2 +1,4 @@
 How to run it:
-open a browser and type in /{folder_to_repo}/index.html to start the handwriting board interaction.
+start the project servers from the repo root, then open `http://localhost:3000`.
+
+`index.html` is the login page. The drawing workspace is `whiteboard.html`, normally opened through the progress page with a `problem_id` or `solution_id`.

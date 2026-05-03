@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OutSmartAI Progress</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body data-page="progress" class="ux-page">
+  <header class="shell-header">
+    <a class="brand" href="/home.html">OutSmartAI</a>
+    <nav class="shell-nav" aria-label="Primary">
+      <a href="/home.html">home</a>
+      <a href="/user_info.html">user_info</a>
+      <button id="logoutBtn" type="button" class="button-secondary">Logout</button>
+    </nav>
+  </header>
+  <main class="shell-main">
+    <section class="page-heading progress-heading">
+      <div>
+        <p class="eyebrow">Problem list</p>
+        <h1>progress</h1>
+      </div>
+      <p id="progressCount" class="muted-copy">Loading...</p>
+    </section>
+    <section id="progressList" class="progress-list" aria-label="Available problems"></section>
+    <div id="progressSentinel" class="progress-sentinel" aria-hidden="true"></div>
+    <button id="loadMoreProgress" type="button" class="load-more hidden">Load more</button>
+    <p id="progressMessage" class="form-message" role="status" aria-live="polite"></p>
+  </main>
+  <script src="ux.js"></script>
+</body>
+</html>

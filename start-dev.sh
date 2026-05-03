@@ -29,7 +29,7 @@ npm run build
 echo "Starting Python backend server..."
 cd backend
 source .venv/bin/activate
-python app.py &
+BACKEND_PORT=${BACKEND_PORT:-5055} python app.py &
 BACKEND_PID=$!
 cd ..
 
@@ -38,12 +38,12 @@ sleep 2
 
 # Start frontend server
 echo "Starting TypeScript frontend server..."
-npm start &
+BACKEND_URL=${BACKEND_URL:-http://localhost:5055} npm start &
 FRONTEND_PID=$!
 
 echo "Servers started:"
 echo "- Frontend (TypeScript): http://localhost:3000"
-echo "- Backend (Python): http://localhost:5000"
+echo "- Backend (Python): http://localhost:5055"
 echo ""
 echo "Press Ctrl+C to stop both servers"
 

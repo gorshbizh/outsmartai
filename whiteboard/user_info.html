@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OutSmartAI User Info</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body data-page="user_info" class="ux-page">
+  <header class="shell-header">
+    <a class="brand" href="/home.html">OutSmartAI</a>
+    <nav class="shell-nav" aria-label="Primary">
+      <a href="/home.html">home</a>
+      <a href="/progress.html">progress</a>
+      <button id="logoutBtn" type="button" class="button-secondary">Logout</button>
+    </nav>
+  </header>
+  <main class="shell-main narrow">
+    <section class="page-heading">
+      <p class="eyebrow">Account</p>
+      <h1>user_info</h1>
+    </section>
+    <form id="userInfoForm" class="stacked-form detail-form">
+      <label>
+        Username
+        <input id="profileUsername" name="username" disabled>
+      </label>
+      <label>
+        Display name
+        <input id="profileDisplayName" name="display_name" required>
+      </label>
+      <label>
+        Email
+        <input id="profileEmail" name="email" type="email">
+      </label>
+      <button type="submit">Save changes</button>
+    </form>
+    <p id="profileMessage" class="form-message" role="status" aria-live="polite"></p>
+  </main>
+  <script src="ux.js"></script>
+</body>
+</html>

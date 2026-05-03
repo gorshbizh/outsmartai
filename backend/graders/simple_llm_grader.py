@@ -20,7 +20,7 @@ Key features:
 
 import json
 import base64
-from typing import Dict, List, Any, Optional, TYPE_CHECKING
+from typing import Callable, Dict, List, Any, Optional, TYPE_CHECKING
 from dataclasses import dataclass, asdict, field
 
 if TYPE_CHECKING:
@@ -115,7 +115,8 @@ class SimpleLLMGrader:
         solution_image: bytes,
         problem_image: Optional[bytes] = None,
         max_points: int = 100,
-        use_tool: bool = False
+        use_tool: bool = False,
+        progress_callback: Optional[Callable[[str], None]] = None,
     ) -> SimpleGradingResult:
         """
         Grade a student's geometry solution.
@@ -129,21 +130,28 @@ class SimpleLLMGrader:
         Returns:
             SimpleGradingResult with score and feedback
         """
-        print(f"[SimpleLLMGrader] Starting grading with max_points={max_points}, use_tool={use_tool}")
+        self._emit(progress_callback, f"[SimpleLLMGrader] Starting grading with max_points={max_points}, use_tool={use_tool}")
 
         # Always require problem_image for two-image mode
         if problem_image is None:
-            print("[SimpleLLMGrader] WARNING: No problem image provided, using solution image as both")
+            self._emit(progress_callback, "[SimpleLLMGrader] WARNING: No problem image provided, using solution image as both")
             problem_image = solution_image
 
         prompt = self._build_prompt()
 
         if use_tool:
+            self._emit(progress_callback, "[SimpleLLMGrader] Using two-image mode with tools (problem + solution)")
             result = await self._grade_with_tool(prompt, solution_image, problem_image)
         else:
+            self._emit(progress_callback, "[SimpleLLMGrader] Using two-image mode (problem + solution)")
             result = await self._grade_direct(prompt, solution_image, problem_image)
 
-        return self._parse_result(result, max_points)
+        return self._parse_result(result, max_points, progress_callback=progress_callback)
+
+    def _emit(self, progress_callback: Optional[Callable[[str], None]], message: str) -> None:
+        print(message)
+        if progress_callback:
+            progress_callback(message)
 
     def _build_prompt(self) -> str:
         """Build the grading prompt."""
@@ -301,7 +309,6 @@ AVOID FALSE NEGATIVES:
         ]
 
         # Always use two-image mode
-        print("[SimpleLLMGrader] Using two-image mode (problem + solution)")
         result = await self.llm_service.chat_with_two_images(
             messages=messages,
             image1_data=problem_image,
@@ -333,7 +340,6 @@ If you need to verify a specific detail that you're uncertain about, you can use
         ]
 
         # Always use two-image mode
-        print("[SimpleLLMGrader] Using two-image mode with tools (problem + solution)")
         result = await self.llm_service.chat_with_two_images(
             messages=messages,
             image1_data=problem_image,
@@ -419,7 +425,12 @@ Respond with JSON:
 
         return result
 
-    def _parse_result(self, result: Dict[str, Any], max_points: int) -> SimpleGradingResult:
+    def _parse_result(
+        self,
+        result: Dict[str, Any],
+        max_points: int,
+        progress_callback: Optional[Callable[[str], None]] = None,
+    ) -> SimpleGradingResult:
         """Parse LLM response into SimpleGradingResult."""
 
         # Handle raw response
@@ -433,7 +444,7 @@ Respond with JSON:
             try:
                 result = json.loads(raw)
             except json.JSONDecodeError:
-                print(f"[SimpleLLMGrader] Failed to parse response: {raw[:200]}...")
+                self._emit(progress_callback, f"[SimpleLLMGrader] Failed to parse response: {raw[:200]}...")
                 return SimpleGradingResult(
                     total_score=0,
                     max_score=max_points,
@@ -476,17 +487,17 @@ Respond with JSON:
                 ))
 
         # Log extracted information
-        print(f"\n[SimpleLLMGrader] === EXTRACTED GIVENS ({len(givens)}) ===")
+        self._emit(progress_callback, f"[SimpleLLMGrader] === EXTRACTED GIVENS ({len(givens)}) ===")
         for g in givens:
             conf_indicator = "HIGH" if g.confidence >= 0.8 else "MED" if g.confidence >= 0.5 else "LOW"
-            print(f"  [{conf_indicator} {g.confidence:.2f}] [{g.source}] {g.fact}")
+            self._emit(progress_callback, f"  [{conf_indicator} {g.confidence:.2f}] [{g.source}] {g.fact}")
 
-        print(f"\n[SimpleLLMGrader] === EXTRACTED STEPS ({len(steps)}) ===")
+        self._emit(progress_callback, f"[SimpleLLMGrader] === EXTRACTED STEPS ({len(steps)}) ===")
         for s in steps:
             conf_indicator = "HIGH" if s.confidence >= 0.8 else "MED" if s.confidence >= 0.5 else "LOW"
             valid_indicator = "VALID" if s.is_valid else "INVALID" if s.is_valid is False else "?"
             issue_text = f" -> {s.issue}" if s.issue else ""
-            print(f"  Step {s.step_number}: [{conf_indicator} {s.confidence:.2f}] [{valid_indicator}] {s.content[:80]}...{issue_text}")
+            self._emit(progress_callback, f"  Step {s.step_number}: [{conf_indicator} {s.confidence:.2f}] [{valid_indicator}] {s.content[:80]}...{issue_text}")
 
         # Extract other fields
         minor_issues = result.get("minor_issues", [])
@@ -505,11 +516,11 @@ Respond with JSON:
         total_deduction = major_deduction + cascade_deduction + minor_deduction
         total_score = max(0, max_points - total_deduction)
 
-        print(f"\n[SimpleLLMGrader] Score: {total_score}/{max_points}")
-        print(f"  - Major issues: {len(major_issues)} × -35 = -{major_deduction} pts")
-        print(f"  - Cascade issues: {len(cascade_issues)} × -10 = -{cascade_deduction} pts")
-        print(f"  - Minor issues: {len(minor_issues)} × -3 = -{minor_deduction} pts")
-        print(f"  - Total deduction: -{total_deduction} pts")
+        self._emit(progress_callback, f"[SimpleLLMGrader] Score: {total_score}/{max_points}")
+        self._emit(progress_callback, f"  - Major issues: {len(major_issues)} x -35 = -{major_deduction} pts")
+        self._emit(progress_callback, f"  - Cascade issues: {len(cascade_issues)} x -10 = -{cascade_deduction} pts")
+        self._emit(progress_callback, f"  - Minor issues: {len(minor_issues)} x -3 = -{minor_deduction} pts")
+        self._emit(progress_callback, f"  - Total deduction: -{total_deduction} pts")
 
         return SimpleGradingResult(
             total_score=total_score,

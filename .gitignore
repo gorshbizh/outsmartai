@@ -98,3 +98,4 @@ out/
 
 # Image backups
 backups/
+backend/uploads/

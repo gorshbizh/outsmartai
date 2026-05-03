@@ -6,23 +6,43 @@ import base64
 import re
 import json
 import asyncio
+import shutil
+import uuid
+import queue
+import threading
 from datetime import datetime
 from dataclasses import dataclass, asdict
+from functools import wraps
+from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, session, send_file, Response, stream_with_context
 from flask_cors import CORS
 from PIL import Image
 from dotenv import load_dotenv, find_dotenv
+from werkzeug.security import check_password_hash
+
+from db import (
+    AppRepository,
+    DatabaseUnavailable,
+    initialize_database,
+    resolve_repo_path,
+    seed_test_data,
+)
 
 # Load environment variables (search up the directory tree so running from `backend/` still finds repo-root `.env`)
 load_dotenv(find_dotenv())
 
 app = Flask(__name__)
-CORS(app)
+app.config["SECRET_KEY"] = os.getenv("FLASK_SECRET_KEY", "outsmartai-dev-secret")
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = os.getenv("SESSION_COOKIE_SAMESITE", "Lax")
+app.config["SESSION_COOKIE_SECURE"] = os.getenv("SESSION_COOKIE_SECURE", "False").lower() == "true"
+CORS(app, supports_credentials=True)
 
 # Configuration
 LLM_PROVIDER = os.getenv('LLM_PROVIDER', 'mock')
 LLM_API_KEY = os.getenv('LLM_API_KEY')
+repo = AppRepository()
 
 # Unified data protocol models -------------------------------------------------
 
@@ -160,6 +180,10 @@ class ExtractedStudentClaims:
 
 def _normalize_text(text: str) -> str:
     return re.sub(r"\s+", " ", text.strip())
+
+
+class LLMServiceError(RuntimeError):
+    """Raised when a grading-critical LLM call fails."""
 
 
 class StepExtractorAgent:
@@ -1021,7 +1045,11 @@ IMPORTANT:
                 "content": "Analyze this problem image and extract the given claims using FormalGeo predicates. Output ONLY the JSON, no additional text.",
             },
         ]
-        llm_resp = await self.llm_service.chat(messages, image_data=problem_image_data)
+        llm_resp = await self.llm_service.chat(
+            messages,
+            image_data=problem_image_data,
+            allow_mock_fallback=False,
+        )
         result = self._parse_response(llm_resp)
 
         print("\n" + "="*80)
@@ -1230,7 +1258,11 @@ IMPORTANT:
         ]
 
         # Send solution image (student work) as the analyzed image
-        llm_resp = await self.llm_service.chat(messages, image_data=solution_image_data)
+        llm_resp = await self.llm_service.chat(
+            messages,
+            image_data=solution_image_data,
+            allow_mock_fallback=False,
+        )
         result = self._parse_response(llm_resp)
 
         print("\n" + "="*80)
@@ -2035,9 +2067,21 @@ class LLMService:
         self.provider = LLM_PROVIDER
         self.api_key = LLM_API_KEY
 
-    async def chat(self, messages: List[Dict[str, Any]], model: str = "claude-opus-4-5", temperature: float = 0.0, image_data: Optional[bytes] = None) -> Dict[str, Any]:
+    async def chat(
+        self,
+        messages: List[Dict[str, Any]],
+        model: str = "claude-opus-4-5",
+        temperature: float = 0.0,
+        image_data: Optional[bytes] = None,
+        allow_mock_fallback: bool = True,
+    ) -> Dict[str, Any]:
         """Generic chat interface for A1-A4 agents."""
         if not self.api_key or self.provider == 'mock':
+            if not allow_mock_fallback:
+                raise LLMServiceError(
+                    f"LLM chat is unavailable because provider={self.provider!r} and API key is "
+                    f"{'configured' if self.api_key else 'missing'}."
+                )
             return self._mock_chat(messages)
         try:
             if self.provider == 'openai':
@@ -2048,6 +2092,8 @@ class LLMService:
                 raise ValueError(f"Unsupported LLM provider for chat: {self.provider}")
         except Exception as e:
             print(f"LLM chat error: {e}")
+            if not allow_mock_fallback:
+                raise LLMServiceError(f"LLM chat failed using provider {self.provider}: {e}") from e
             return self._mock_chat(messages)
 
     async def analyze_image(self, image_data: bytes) -> Dict[str, Any]:
@@ -3633,7 +3679,688 @@ def save_image_backup(image_data: bytes, filename_prefix: str = "backup") -> str
     print(f"Image backup saved: {backup_path}")
     return backup_path
 
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+SOLUTION_UPLOAD_DIR = Path(__file__).resolve().parent / "uploads" / "solutions"
+
+
+def env_bool(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def initialize_data_store():
+    if not env_bool("DB_AUTO_INIT", True):
+        return
+    try:
+        initialize_database()
+        if env_bool("DB_AUTO_SEED", True):
+            seeded = seed_test_data()
+            print(f"MySQL initialized; seeded {seeded['problems']} problems and {seeded['solutions']} solutions")
+        else:
+            print("MySQL initialized; DB_AUTO_SEED is disabled")
+    except DatabaseUnavailable as exc:
+        print(f"MySQL initialization skipped: {exc}")
+    except Exception as exc:
+        print(f"MySQL initialization failed: {exc}")
+
+
+def db_error_response(exc: Exception):
+    return jsonify({
+        "success": False,
+        "error": str(exc),
+    }), 503
+
+
+def current_user():
+    user_id = session.get("user_id")
+    if not user_id:
+        return None
+    try:
+        return repo.get_user_by_id(int(user_id))
+    except DatabaseUnavailable:
+        raise
+    except Exception:
+        session.clear()
+        return None
+
+
+def login_required(fn):
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        try:
+            user = current_user()
+        except DatabaseUnavailable as exc:
+            return db_error_response(exc)
+        if not user:
+            return jsonify({"success": False, "error": "Authentication required"}), 401
+        request.user = user
+        return fn(*args, **kwargs)
+    return wrapper
+
+
+def validate_auth_payload(data: Dict[str, Any], require_email: bool = False):
+    username = (data.get("username") or "").strip()
+    password = data.get("password") or ""
+    email = (data.get("email") or "").strip()
+    display_name = (data.get("display_name") or username).strip()
+    if not username:
+        return None, "Username is required"
+    if len(username) < 3:
+        return None, "Username must be at least 3 characters"
+    if not re.match(r"^[A-Za-z0-9_.-]+$", username):
+        return None, "Username can only contain letters, numbers, dots, underscores, and dashes"
+    if not password:
+        return None, "Password is required"
+    if len(password) < 8:
+        return None, "Password must be at least 8 characters"
+    if require_email and not email:
+        return None, "Email is required"
+    return {
+        "username": username,
+        "password": password,
+        "display_name": display_name or username,
+        "email": email or None,
+    }, None
+
+
+def save_solution_snapshot(
+    image_data_url: Optional[str],
+    user_id: int,
+    problem_id: str,
+    snapshot_kind: str = "draft",
+) -> Optional[str]:
+    if not image_data_url:
+        return None
+    raw = image_data_url.split(",", 1)[1] if "," in image_data_url else image_data_url
+    try:
+        image_data = base64.b64decode(raw)
+        image = Image.open(io.BytesIO(image_data))
+        image.verify()
+    except Exception as exc:
+        raise ValueError(f"Invalid solution image: {exc}") from exc
+
+    SOLUTION_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    safe_problem_id = re.sub(r"[^A-Za-z0-9_.-]+", "_", problem_id)
+    filename = f"{snapshot_kind}_user_{user_id}_{safe_problem_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}.png"
+    path = SOLUTION_UPLOAD_DIR / filename
+    path.write_bytes(image_data)
+    return str(path.resolve().relative_to(REPO_ROOT))
+
+
+def copy_solution_snapshot(
+    source_image_path: str,
+    user_id: int,
+    problem_id: str,
+    snapshot_kind: str = "graded",
+) -> str:
+    resolved = resolve_repo_path(source_image_path)
+    if not resolved.exists():
+        raise ValueError("Source solution image file is missing")
+
+    SOLUTION_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    safe_problem_id = re.sub(r"[^A-Za-z0-9_.-]+", "_", problem_id)
+    filename = f"{snapshot_kind}_user_{user_id}_{safe_problem_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}.png"
+    target = SOLUTION_UPLOAD_DIR / filename
+    shutil.copyfile(resolved, target)
+    return str(target.resolve().relative_to(REPO_ROOT))
+
+
+def extract_grading_steps(grading_result: Dict[str, Any]) -> List[Dict[str, Any]]:
+    candidates = [
+        grading_result.get("steps"),
+        grading_result.get("result", {}).get("steps") if isinstance(grading_result.get("result"), dict) else None,
+        grading_result.get("grading", {}).get("steps") if isinstance(grading_result.get("grading"), dict) else None,
+    ]
+    for candidate in candidates:
+        if isinstance(candidate, list):
+            return candidate
+    return []
+
+
+def run_simple_solution_grading(
+    problem_image_data: bytes,
+    solution_image_data: bytes,
+    progress_callback=None,
+    use_tool: bool = False,
+) -> Dict[str, Any]:
+    from graders.simple_llm_grader import SimpleLLMGrader
+
+    def emit(message: str) -> None:
+        print(message)
+        if progress_callback:
+            progress_callback(message)
+
+    emit("Running Simple LLM Grader...")
+    emit("  -> Two-image mode: extracting givens from problem, steps from solution")
+    emit("  -> Minor issues: -3 points each")
+    emit("  -> Major issues: -35 pts (first) + -10 pts (cascading)")
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        grader = SimpleLLMGrader(llm_service)
+        result = loop.run_until_complete(
+            grader.grade(
+                solution_image=solution_image_data,
+                problem_image=problem_image_data,
+                max_points=100,
+                use_tool=use_tool,
+                progress_callback=progress_callback,
+            )
+        )
+        return {
+            "success": True,
+            "grading_mode": "simple_llm",
+            "result": result.to_dict(),
+        }
+    finally:
+        loop.close()
+
+
+def run_solution_grading(
+    problem_id: str,
+    problem_image_path: str,
+    solution_image_path: str,
+    grading_mode: str,
+    progress_callback=None,
+) -> Dict[str, Any]:
+    problem_path = resolve_repo_path(problem_image_path)
+    solution_path = resolve_repo_path(solution_image_path)
+    if not problem_path.exists():
+        raise ValueError("Problem image file is missing")
+    if not solution_path.exists():
+        raise ValueError("Solution image file is missing")
+
+    problem_image_data = problem_path.read_bytes()
+    solution_image_data = solution_path.read_bytes()
+
+    if grading_mode in {"formalgeo", "simple_llm"}:
+        return run_simple_solution_grading(
+            problem_image_data=problem_image_data,
+            solution_image_data=solution_image_data,
+            progress_callback=progress_callback,
+            use_tool=False,
+        )
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        if grading_mode == "llm_native":
+            from graders.llm_native_grader import LLMNativeGeometryGrader
+            grader = LLMNativeGeometryGrader(llm_service)
+            result = loop.run_until_complete(
+                grader.grade(
+                    problem_image=problem_image_data,
+                    student_image=solution_image_data,
+                    max_points=100,
+                )
+            )
+            return {
+                "success": True,
+                "grading_mode": "llm_native",
+                "result": result.to_dict(),
+            }
+
+        return loop.run_until_complete(
+            two_image_pipeline.grade(
+                problem_image_data=problem_image_data,
+                solution_image_data=solution_image_data,
+                problem_id=problem_id,
+            )
+        )
+    finally:
+        loop.close()
+
+
+def sse_event(event: str, payload: Dict[str, Any]) -> str:
+    return f"event: {event}\ndata: {json.dumps(payload, default=str)}\n\n"
+
+
+initialize_data_store()
+
+
+@app.route('/api/db/status', methods=['GET'])
+def db_status():
+    try:
+        user = current_user()
+        return jsonify({
+            "success": True,
+            "authenticated": bool(user),
+            "user": user,
+        })
+    except DatabaseUnavailable as exc:
+        return db_error_response(exc)
+
+
+@app.route('/api/auth/register', methods=['POST'])
+def register_user():
+    data = request.get_json(silent=True) or {}
+    payload, error = validate_auth_payload(data)
+    if error:
+        return jsonify({"success": False, "error": error}), 400
+
+    try:
+        user = repo.create_user(
+            username=payload["username"],
+            password=payload["password"],
+            display_name=payload["display_name"],
+            email=payload["email"],
+        )
+    except ValueError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 409
+    except DatabaseUnavailable as exc:
+        return db_error_response(exc)
+
+    session.clear()
+    session["user_id"] = user["id"]
+    return jsonify({"success": True, "user": user})
+
+
+@app.route('/api/auth/login', methods=['POST'])
+def login_user():
+    data = request.get_json(silent=True) or {}
+    username = (data.get("username") or "").strip()
+    password = data.get("password") or ""
+    if not username or not password:
+        return jsonify({"success": False, "error": "Username and password are required"}), 400
+
+    try:
+        user_row = repo.get_user_with_password(username)
+    except DatabaseUnavailable as exc:
+        return db_error_response(exc)
+
+    if not user_row or not check_password_hash(user_row["password_hash"], password):
+        return jsonify({"success": False, "error": "Invalid username or password"}), 401
+
+    user = {
+        "id": user_row["id"],
+        "username": user_row["username"],
+        "display_name": user_row["display_name"],
+        "email": user_row.get("email"),
+        "created_at": user_row.get("created_at").isoformat() if user_row.get("created_at") else None,
+        "updated_at": user_row.get("updated_at").isoformat() if user_row.get("updated_at") else None,
+    }
+    session.clear()
+    session["user_id"] = user["id"]
+    return jsonify({"success": True, "user": user})
+
+
+@app.route('/api/auth/logout', methods=['POST'])
+def logout_user():
+    session.clear()
+    return jsonify({"success": True})
+
+
+@app.route('/api/auth/me', methods=['GET'])
+def auth_me():
+    try:
+        user = current_user()
+    except DatabaseUnavailable as exc:
+        return db_error_response(exc)
+    if not user:
+        return jsonify({"success": False, "error": "Authentication required"}), 401
+    return jsonify({"success": True, "user": user})
+
+
+@app.route('/api/user', methods=['GET'])
+@login_required
+def get_user_info():
+    return jsonify({"success": True, "user": request.user})
+
+
+@app.route('/api/user', methods=['PUT'])
+@login_required
+def update_user_info():
+    data = request.get_json(silent=True) or {}
+    display_name = (data.get("display_name") or "").strip()
+    email = (data.get("email") or "").strip() or None
+    if not display_name:
+        return jsonify({"success": False, "error": "Display name is required"}), 400
+    try:
+        user = repo.update_user(request.user["id"], display_name=display_name, email=email)
+    except ValueError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
+    except DatabaseUnavailable as exc:
+        return db_error_response(exc)
+    session["user_id"] = user["id"]
+    return jsonify({"success": True, "user": user})
+
+
+@app.route('/api/progress', methods=['GET'])
+@login_required
+def progress():
+    try:
+        limit = int(request.args.get("limit", 20))
+        offset = int(request.args.get("offset", 0))
+    except ValueError:
+        return jsonify({"success": False, "error": "limit and offset must be integers"}), 400
+    try:
+        payload = repo.list_progress(request.user["id"], limit=limit, offset=offset)
+    except DatabaseUnavailable as exc:
+        return db_error_response(exc)
+    return jsonify({"success": True, **payload})
+
+
+@app.route('/api/whiteboard/context', methods=['GET'])
+@login_required
+def whiteboard_context():
+    problem_id = request.args.get("problem_id")
+    solution_id = request.args.get("solution_id")
+
+    try:
+        selected_solution = None
+        if solution_id:
+            selected_solution = repo.get_solution(solution_id, user_id=request.user["id"])
+            if not selected_solution:
+                return jsonify({"success": False, "error": "Solution not found"}), 404
+            problem_id = selected_solution["problem_id"]
+
+        if not problem_id:
+            return jsonify({"success": False, "error": "problem_id or solution_id is required"}), 400
+
+        problem = repo.get_problem(problem_id)
+        if not problem:
+            return jsonify({"success": False, "error": "Problem not found"}), 404
+        problem_solutions = repo.list_problem_solutions(request.user["id"], problem_id)
+    except DatabaseUnavailable as exc:
+        return db_error_response(exc)
+
+    return jsonify({
+        "success": True,
+        "problem": problem,
+        "solution": selected_solution,
+        **problem_solutions,
+        "user": request.user,
+    })
+
+
+@app.route('/api/problems/<problem_id>/image', methods=['GET'])
+@login_required
+def problem_image(problem_id):
+    try:
+        image_path = repo.get_problem_image_path(problem_id)
+    except DatabaseUnavailable as exc:
+        return db_error_response(exc)
+    if not image_path:
+        return jsonify({"success": False, "error": "Problem image not found"}), 404
+    try:
+        resolved = resolve_repo_path(image_path)
+    except ValueError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
+    if not resolved.exists():
+        return jsonify({"success": False, "error": "Problem image file is missing"}), 404
+    return send_file(resolved)
+
+
+@app.route('/api/solutions/<solution_id>/image', methods=['GET'])
+@login_required
+def solution_image(solution_id):
+    try:
+        image_path = repo.get_solution_image_path(solution_id, user_id=request.user["id"])
+    except DatabaseUnavailable as exc:
+        return db_error_response(exc)
+    if not image_path:
+        return jsonify({"success": False, "error": "Solution image not found"}), 404
+    try:
+        resolved = resolve_repo_path(image_path)
+    except ValueError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
+    if not resolved.exists():
+        return jsonify({"success": False, "error": "Solution image file is missing"}), 404
+    return send_file(resolved)
+
+
+@app.route('/api/solutions', methods=['POST'])
+@login_required
+def save_solution():
+    data = request.get_json(silent=True) or {}
+    problem_id = (data.get("problem_id") or "").strip()
+    if not problem_id:
+        return jsonify({"success": False, "error": "problem_id is required"}), 400
+
+    title = (data.get("title") or f"My solution for {problem_id}").strip()
+    canvas_data = data.get("canvas_data")
+    save_as = bool(data.get("save_as"))
+    source_solution_id = (data.get("source_solution_id") or "").strip() or None
+
+    try:
+        image_path = save_solution_snapshot(
+            data.get("image_data"),
+            request.user["id"],
+            problem_id,
+            snapshot_kind="draft",
+        )
+        solution = repo.save_user_solution(
+            user_id=request.user["id"],
+            problem_id=problem_id,
+            title=title,
+            solution_id=data.get("solution_id"),
+            image_path=image_path,
+            canvas_data=canvas_data,
+            save_as=save_as,
+            parent_solution_id=source_solution_id,
+        )
+    except ValueError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
+    except DatabaseUnavailable as exc:
+        return db_error_response(exc)
+
+    return jsonify({"success": True, "solution": solution})
+
+
+@app.route('/api/solutions/<solution_id>/grade', methods=['POST'])
+@login_required
+def grade_saved_solution(solution_id):
+    data = request.get_json(silent=True) or {}
+    grading_mode = data.get("grading_mode", "formalgeo")
+    if grading_mode not in {"formalgeo", "simple_llm", "llm_native"}:
+        return jsonify({"success": False, "error": "grading_mode must be formalgeo, simple_llm, or llm_native"}), 400
+
+    try:
+        solution = repo.get_solution(solution_id, user_id=request.user["id"])
+        if not solution:
+            return jsonify({"success": False, "error": "Solution not found"}), 404
+        if solution.get("solution_type") != "draft":
+            return jsonify({
+                "success": False,
+                "error": "Solution has already been graded",
+                "solution": solution,
+            }), 409
+
+        problem_image_path = repo.get_problem_image_path(solution["problem_id"])
+        draft_image_path = repo.get_solution_image_path(solution_id, user_id=request.user["id"])
+        if not problem_image_path or not draft_image_path:
+            return jsonify({"success": False, "error": "Save the solution before grading"}), 400
+        final_image_path = copy_solution_snapshot(
+            draft_image_path,
+            request.user["id"],
+            solution["problem_id"],
+            snapshot_kind="graded",
+        )
+
+        try:
+            grading_result = run_solution_grading(
+                problem_id=solution["problem_id"],
+                problem_image_path=problem_image_path,
+                solution_image_path=final_image_path,
+                grading_mode=grading_mode,
+            )
+        except LLMServiceError as exc:
+            return jsonify({
+                "success": False,
+                "error": (
+                    "Grading could not reach the configured vision LLM. "
+                    f"{exc}"
+                ),
+            }), 502
+        grading_steps = extract_grading_steps(grading_result)
+        graded_solution = repo.mark_solution_graded(
+            draft_solution_id=solution_id,
+            user_id=request.user["id"],
+            image_path=final_image_path,
+            grading_result=grading_result,
+            grading_steps=grading_steps,
+        )
+    except ValueError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
+    except DatabaseUnavailable as exc:
+        return db_error_response(exc)
+    except Exception as exc:
+        print(f"Error grading solution: {exc}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"success": False, "error": f"Internal server error: {str(exc)}"}), 500
+
+    return jsonify({
+        "success": True,
+        "solution": graded_solution,
+        "grading_steps": grading_steps,
+        "grading_result": grading_result,
+    })
+
+
+@app.route('/api/solutions/<solution_id>/grade/stream', methods=['POST'])
+@login_required
+def grade_saved_solution_stream(solution_id):
+    data = request.get_json(silent=True) or {}
+    grading_mode = data.get("grading_mode", "formalgeo")
+    user_id = request.user["id"]
+
+    if grading_mode not in {"formalgeo", "simple_llm", "llm_native"}:
+        return jsonify({"success": False, "error": "grading_mode must be formalgeo, simple_llm, or llm_native"}), 400
+
+    @stream_with_context
+    def generate():
+        try:
+            yield sse_event("status", {
+                "message": "Checking the saved draft and problem image.",
+                "provider": LLM_PROVIDER,
+                "has_api_key": bool(LLM_API_KEY),
+            })
+            solution = repo.get_solution(solution_id, user_id=user_id)
+            if not solution:
+                yield sse_event("error", {"success": False, "error": "Solution not found"})
+                return
+            if solution.get("solution_type") != "draft":
+                yield sse_event("error", {
+                    "success": False,
+                    "error": "Solution has already been graded",
+                    "solution": solution,
+                })
+                return
+
+            problem_image_path = repo.get_problem_image_path(solution["problem_id"])
+            draft_image_path = repo.get_solution_image_path(solution_id, user_id=user_id)
+            if not problem_image_path or not draft_image_path:
+                yield sse_event("error", {"success": False, "error": "Save the solution before grading"})
+                return
+
+            yield sse_event("status", {"message": "Saving a graded snapshot of the whiteboard image."})
+            final_image_path = copy_solution_snapshot(
+                draft_image_path,
+                user_id,
+                solution["problem_id"],
+                snapshot_kind="graded",
+            )
+
+            yield sse_event("status", {
+                "message": "Sending the problem image and whiteboard snapshot to the Simple LLM Grader.",
+                "grading_mode": "simple_llm" if grading_mode == "formalgeo" else grading_mode,
+            })
+            grading_events: "queue.Queue[Tuple[str, Any]]" = queue.Queue()
+            grading_result = None
+
+            def progress(message: str) -> None:
+                grading_events.put(("log", {"message": message}))
+
+            def run_grader_worker() -> None:
+                try:
+                    result = run_solution_grading(
+                        problem_id=solution["problem_id"],
+                        problem_image_path=problem_image_path,
+                        solution_image_path=final_image_path,
+                        grading_mode=grading_mode,
+                        progress_callback=progress,
+                    )
+                    grading_events.put(("result", result))
+                except Exception as worker_exc:
+                    grading_events.put(("exception", worker_exc))
+                finally:
+                    grading_events.put(("done", None))
+
+            worker = threading.Thread(target=run_grader_worker, daemon=True)
+            worker.start()
+
+            while True:
+                event_name, payload = grading_events.get()
+                if event_name == "log":
+                    yield sse_event("log", payload)
+                elif event_name == "result":
+                    grading_result = payload
+                elif event_name == "exception":
+                    if isinstance(payload, LLMServiceError):
+                        yield sse_event("error", {
+                            "success": False,
+                            "error": (
+                                "Grading could not reach the configured vision LLM. "
+                                f"{payload}"
+                            ),
+                        })
+                    else:
+                        raise payload
+                    return
+                elif event_name == "done":
+                    break
+
+            if grading_result is None:
+                yield sse_event("error", {"success": False, "error": "Grading ended before returning a result"})
+                return
+
+            yield sse_event("status", {"message": "The score is ready. Saving grading details to MySQL."})
+            grading_steps = extract_grading_steps(grading_result)
+            graded_solution = repo.mark_solution_graded(
+                draft_solution_id=solution_id,
+                user_id=user_id,
+                image_path=final_image_path,
+                grading_result=grading_result,
+                grading_steps=grading_steps,
+            )
+        except ValueError as exc:
+            yield sse_event("error", {"success": False, "error": str(exc)})
+            return
+        except DatabaseUnavailable as exc:
+            yield sse_event("error", {"success": False, "error": str(exc)})
+            return
+        except Exception as exc:
+            print(f"Error streaming solution grading: {exc}")
+            import traceback
+            traceback.print_exc()
+            yield sse_event("error", {"success": False, "error": f"Internal server error: {str(exc)}"})
+            return
+
+        yield sse_event("complete", {
+            "success": True,
+            "message": "Grading complete.",
+            "solution": graded_solution,
+            "grading_steps": grading_steps,
+            "grading_result": grading_result,
+        })
+
+    return Response(
+        generate(),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 @app.route('/health', methods=['GET'])
+@app.route('/api/health', methods=['GET'])
 def health_check():
     """Health check endpoint"""
     return jsonify({
@@ -3978,7 +4705,7 @@ def internal_error(error):
     return jsonify({'error': 'Internal server error'}), 500
 
 if __name__ == '__main__':
-    port = int(os.getenv('BACKEND_PORT', 5000))
+    port = int(os.getenv('BACKEND_PORT', 5055))
     debug = os.getenv('FLASK_DEBUG', 'False').lower() == 'true'
     
     print(f"Starting Python backend server on port {port}")

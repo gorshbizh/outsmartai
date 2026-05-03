@@ -3,109 +3,56 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Handwriting Board</title>
+  <title>OutSmartAI Login</title>
   <link rel="stylesheet" href="styles.css">
 </head>
-<body>
-  <header class="app-header">
-    <h1>Handwriting Board</h1>
-    <nav class="toolbar" aria-label="Drawing toolbar">
-      <div class="tool-group">
+<body data-page="login" class="ux-page">
+  <main class="auth-layout">
+    <section class="auth-panel" aria-labelledby="login-title">
+      <p class="eyebrow">OutSmartAI</p>
+      <h1 id="login-title">Sign in</h1>
+      <p class="muted-copy">Welcome back.</p>
+
+      <div class="auth-tabs" role="tablist" aria-label="Authentication mode">
+        <button type="button" class="auth-tab active" data-auth-mode="login">Login</button>
+        <button type="button" class="auth-tab" data-auth-mode="register">Create account</button>
+      </div>
+
+      <form id="loginForm" class="stacked-form" autocomplete="on">
         <label>
-          <input type="radio" name="tool" value="pen" id="tool-pen" checked>
-          Pen
+          Username
+          <input id="loginUsername" name="username" autocomplete="username" required>
         </label>
         <label>
-          <input type="radio" name="tool" value="eraser" id="tool-eraser">
-          Eraser
+          Password
+          <input id="loginPassword" name="password" type="password" autocomplete="current-password" required>
         </label>
-      </div>
+        <button type="submit">Login</button>
+      </form>
 
-      <div class="tool-group">
-        <label for="color">Color</label>
-        <input type="color" id="color" value="#000000">
-      </div>
+      <form id="registerForm" class="stacked-form hidden" autocomplete="on">
+        <label>
+          Username
+          <input id="registerUsername" name="username" autocomplete="username" required minlength="3">
+        </label>
+        <label>
+          Display name
+          <input id="registerDisplayName" name="display_name" autocomplete="name">
+        </label>
+        <label>
+          Email
+          <input id="registerEmail" name="email" type="email" autocomplete="email">
+        </label>
+        <label>
+          Password
+          <input id="registerPassword" name="password" type="password" autocomplete="new-password" required minlength="8">
+        </label>
+        <button type="submit">Create account</button>
+      </form>
 
-      <div class="tool-group">
-        <label for="bgColor">Background</label>
-        <input type="color" id="bgColor" value="#ffffff">
-      </div>
-
-      <div class="tool-group">
-        <label for="size">Size</label>
-        <input type="range" id="size" min="1" max="50" value="4">
-        <span id="sizeVal" aria-live="polite">4 px</span>
-      </div>
-
-      <div class="tool-group">
-        <button id="undo" title="Undo (Ctrl+Z)">Undo</button>
-        <button id="redo" title="Redo (Ctrl+Y / Ctrl+Shift+Z)">Redo</button>
-        <button id="clear" title="Clear">Clear</button>
-      </div>
-
-      <div class="tool-group">
-        <button id="savePng">Save PNG</button>
-        <button id="saveSvg">Save SVG</button>
-        <button id="saveToServer">Save to Server</button>
-        <button id="analyze-btn">Analyze with AI</button>
-      </div>
-    </nav>
-  </header>
-
-  <main>
-    <div id="board-container">
-      <canvas id="board" aria-label="Drawing canvas"></canvas>
-    </div>
+      <p id="authMessage" class="form-message" role="status" aria-live="polite"></p>
+    </section>
   </main>
-
-  <footer class="app-footer">
-    <span class="tip">Supports mouse, touch, and pen pressure (Pointer Events).</span>
-    <span class="spacer"></span>
-    <a href="#" id="ossLink" target="_blank" rel="noopener noreferrer">Open Source (MIT)</a>
-  </footer>
-
-  <!-- Analysis Results Panel -->
-  <div id="results-panel" class="results-panel hidden">
-    <div class="results-header">
-      <h3>AI Analysis Results</h3>
-      <button id="close-results" class="close-btn">&times;</button>
-    </div>
-    <div class="results-content">
-      <div id="results-loading" class="loading hidden">
-        <div class="spinner"></div>
-        <p>Analyzing your whiteboard...</p>
-      </div>
-      <div id="results-data" class="results-data hidden">
-        <div class="result-section">
-          <h4>Text Recognition</h4>
-          <p id="text-recognition">-</p>
-        </div>
-        <div class="result-section">
-          <h4>Visual Elements</h4>
-          <p id="visual-elements">-</p>
-        </div>
-        <div class="result-section">
-          <h4>Content Analysis</h4>
-          <p id="content-analysis">-</p>
-        </div>
-        <div class="result-section">
-          <h4>Suggestions</h4>
-          <ul id="suggestions-list"></ul>
-        </div>
-        <div class="result-section">
-          <h4>Confidence</h4>
-          <div id="confidence-bar">
-            <div id="confidence-fill"></div>
-            <span id="confidence-text">0%</span>
-          </div>
-        </div>
-      </div>
-      <div id="results-error" class="results-error hidden">
-        <p>Failed to analyze the image. Please try again.</p>
-      </div>
-    </div>
-  </div>
-
-  <script src="app.js"></script>
+  <script src="ux.js"></script>
 </body>
 </html>

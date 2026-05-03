@@ -7,7 +7,7 @@
  * - Adjustable color and size
  * - Undo/redo stack
  * - Clear board
- * - Save as PNG / SVG
+ * - Save drafts to server
  * - High-DPI crisp rendering with devicePixelRatio scaling
  * - Responsive canvas that preserves drawing on resize
  */
@@ -21,16 +21,24 @@ const sizeVal = document.getElementById('sizeVal');
 const undoBtn = document.getElementById('undo');
 const redoBtn = document.getElementById('redo');
 const clearBtn = document.getElementById('clear');
-const savePngBtn = document.getElementById('savePng');
-const saveSvgBtn = document.getElementById('saveSvg');
+const saveToServerBtn = document.getElementById('saveToServer');
+const gradeSolutionBtn = document.getElementById('gradeSolution');
 const analyzeBtn = document.getElementById('analyze-btn');
 const toolPen = document.getElementById('tool-pen');
 const toolEraser = document.getElementById('tool-eraser');
 const bgColorInput = document.getElementById('bgColor');
 const ossLink = document.getElementById('ossLink');
+const logoutBtn = document.getElementById('logoutBtn');
+const contextTitle = document.getElementById('context-title');
+const contextSubtitle = document.getElementById('context-subtitle');
+const problemReference = document.getElementById('problem-reference');
+const problemImage = document.getElementById('problem-image');
+const solutionReferencePanel = document.getElementById('solution-reference-panel');
+const solutionImage = document.getElementById('solution-image');
 
 // Results panel elements
 const resultsPanel = document.getElementById('results-panel');
+const resultsTitle = document.getElementById('results-title');
 const closeResultsBtn = document.getElementById('close-results');
 const resultsLoading = document.getElementById('results-loading');
 const resultsData = document.getElementById('results-data');
@@ -41,6 +49,25 @@ const contentAnalysis = document.getElementById('content-analysis');
 const suggestionsList = document.getElementById('suggestions-list');
 const confidenceFill = document.getElementById('confidence-fill');
 const confidenceText = document.getElementById('confidence-text');
+const gradingDialog = document.getElementById('grading-dialog');
+const closeGradingBtn = document.getElementById('close-grading');
+const gradingScore = document.getElementById('grading-score');
+const gradingSummary = document.getElementById('grading-summary');
+const gradingMajorList = document.getElementById('grading-major-list');
+const gradingMinorList = document.getElementById('grading-minor-list');
+const gradingStepList = document.getElementById('grading-step-list');
+const gradingConfidenceFill = document.getElementById('grading-confidence-fill');
+const gradingConfidenceText = document.getElementById('grading-confidence-text');
+const gradingStream = document.getElementById('grading-stream');
+const solutionBrowser = document.getElementById('solution-browser');
+const whiteboardDraftList = document.getElementById('whiteboard-draft-list');
+const whiteboardFinalList = document.getElementById('whiteboard-final-list');
+const saveDraftDialog = document.getElementById('save-draft-dialog');
+const closeSaveDraftBtn = document.getElementById('close-save-draft');
+const cancelSaveDraftBtn = document.getElementById('cancel-save-draft');
+const saveDraftForm = document.getElementById('save-draft-form');
+const draftNameInput = document.getElementById('draft-name-input');
+const saveDraftHelper = document.getElementById('save-draft-helper');
 
 ossLink.href = 'https://opensource.org/license/mit';
 ossLink.textContent = 'Open Source (MIT)';
@@ -56,6 +83,18 @@ let currentStroke = null;
 let needsFullRedraw = true;
 let bgColor = bgColorInput ? bgColorInput.value : '#ffffff';
 canvas.style.backgroundColor = bgColor;
+let currentProblem = null;
+let currentSolution = null;
+let currentUserSolutionId = null;
+let selectedGradedSolution = null;
+let availableSolutions = [];
+let availableDraftSolutions = [];
+let availableFinalSolutions = [];
+let isSavingSolution = false;
+let isSubmittingGrade = false;
+let readOnlyMode = false;
+let paperImage = null;
+let paperImageSource = null;
 
 // Fixed canvas dimensions (set once at page load)
 let fixedCanvasWidth = 0;
@@ -75,13 +114,47 @@ const textBoxes = [];
 }
 */
 
+async function apiRequest(path, options = {}) {
+  const response = await fetch(path, {
+    credentials: 'include',
+    ...options,
+    headers: {
+      ...(options.body && !(options.body instanceof FormData) ? { 'Content-Type': 'application/json' } : {}),
+      ...(options.headers || {}),
+    },
+  });
+  let payload = null;
+  try {
+    payload = await response.json();
+  } catch {
+    payload = { success: false, error: `Request failed with ${response.status}` };
+  }
+  if (response.status === 401) {
+    window.location.href = '/';
+    throw new Error('Authentication required');
+  }
+  if (!response.ok || payload.success === false) {
+    throw new Error(payload.error || `Request failed with ${response.status}`);
+  }
+  return payload;
+}
+
+if (logoutBtn) {
+  logoutBtn.addEventListener('click', async () => {
+    await apiRequest('/api/auth/logout', { method: 'POST' });
+    window.location.href = '/';
+  });
+}
+
 /* Utilities */
-function setCanvasSize() {
+function setCanvasSize(force = false) {
   // Set fixed dimensions only once at page load
-  if (fixedCanvasWidth === 0 || fixedCanvasHeight === 0) {
+  if (force || fixedCanvasWidth === 0 || fixedCanvasHeight === 0) {
     const rect = container.getBoundingClientRect();
-    fixedCanvasWidth = Math.max(800, Math.floor(rect.width)); // Minimum 800px width
-    fixedCanvasHeight = Math.max(600, Math.floor(rect.height)); // Minimum 600px height
+    if (!paperImage) {
+      fixedCanvasWidth = Math.max(800, Math.floor(rect.width)); // Minimum 800px width
+      fixedCanvasHeight = Math.max(600, Math.floor(rect.height)); // Minimum 600px height
+    }
   }
   
   dpr = Math.max(1, window.devicePixelRatio || 1);
@@ -198,6 +271,8 @@ function fullRedraw() {
 
   // Re-apply scale
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  drawPaperImage();
 
   // Redraw all strokes
   for (const stroke of history) {
@@ -461,15 +536,15 @@ function updateTextBoxInteractivity() {
   canvas.style.cursor = interactive ? 'text' : 'crosshair';
 }
 
-function createTextBox(x, y) {
+function createTextBox(x, y, options = {}) {
   const textarea = document.createElement('textarea');
   textarea.className = 'text-entry';
   textarea.spellcheck = false;
-  textarea.value = '';
+  textarea.value = options.value || '';
   textarea.style.position = 'absolute';
-  textarea.style.color = colorInput.value;
+  textarea.style.color = options.color || colorInput.value;
 
-  const fontPx = Number(sizeInput.value) * 5;
+  const fontPx = options.fontSizePx || Number(sizeInput.value) * 5;
   textarea.style.fontSize = `${fontPx}px`;
   
   // Calculate minimum dimensions for the text box
@@ -530,6 +605,7 @@ function createTextBox(x, y) {
   };
 
   textarea.dataset.boxId = box.id;
+  box._previousValue = textarea.value;
 
   textarea.addEventListener('input', (e) => {
     if (textarea.value.length === 0) {
@@ -800,6 +876,332 @@ function renderTextBoxesToContext(targetCtx) {
   targetCtx.restore();
 }
 
+function exportBoardDataUrl() {
+  const tempCanvas = document.createElement('canvas');
+  const tempCtx = tempCanvas.getContext('2d');
+  tempCanvas.width = canvas.width;
+  tempCanvas.height = canvas.height;
+  tempCtx.fillStyle = bgColor || '#ffffff';
+  tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+  tempCtx.drawImage(canvas, 0, 0);
+  renderTextBoxesToContext(tempCtx);
+  return tempCanvas.toDataURL('image/png', 0.9);
+}
+
+function serializeTextBoxes() {
+  const containerRect = container.getBoundingClientRect();
+  return textBoxes.map(box => {
+    const el = box.element;
+    const rect = el.getBoundingClientRect();
+    const style = window.getComputedStyle(el);
+    return {
+      id: box.id,
+      value: el.value,
+      x: rect.left - containerRect.left,
+      y: rect.top - containerRect.top,
+      color: style.color || '#000000',
+      font_size_px: parseFloat(style.fontSize) || 16,
+      z: box.z,
+    };
+  });
+}
+
+function serializeCanvasData() {
+  return {
+    strokes: history,
+    text_boxes: serializeTextBoxes(),
+    bg_color: bgColor,
+    canvas_width: fixedCanvasWidth,
+    canvas_height: fixedCanvasHeight,
+    paper_image_source: paperImageSource,
+  };
+}
+
+function scoreFromGradingPayload(solution, gradingResult = null) {
+  const source = gradingResult?.result || gradingResult?.score || gradingResult || {};
+  const score = source.total_score ?? source.total_points ?? source.score ?? solution?.score;
+  const maxScore = source.max_score ?? source.max_points ?? solution?.max_score ?? (score !== undefined ? 100 : null);
+  return { score, maxScore };
+}
+
+function isFinalSolution(solution = currentSolution) {
+  return Boolean(solution && solution.solution_type === 'graded');
+}
+
+function updateContextSubtitle() {
+  if (!contextSubtitle) return;
+  if (!currentProblem) {
+    contextSubtitle.textContent = 'Open a problem from progress.';
+    return;
+  }
+  if (selectedGradedSolution) {
+    const { score, maxScore } = scoreFromGradingPayload(selectedGradedSolution, selectedGradedSolution.grading_result);
+    const scoreText = score !== undefined && score !== null
+      ? `Reviewing graded submission ${score}${maxScore ? ` / ${maxScore}` : ''}.`
+      : 'Reviewing a graded submission.';
+    contextSubtitle.textContent = `${scoreText} Save Draft to branch into a new editable copy.`;
+    return;
+  }
+  if (currentSolution) {
+    contextSubtitle.textContent = `Editing draft "${currentSolution.title}" for ${currentProblem.id}.`;
+    return;
+  }
+  contextSubtitle.textContent = `Solving ${currentProblem.id}.`;
+}
+
+function updateSolutionActionState() {
+  const isFinal = isFinalSolution();
+  if (saveToServerBtn) {
+    saveToServerBtn.disabled = !currentProblem || isSavingSolution || isSubmittingGrade;
+    saveToServerBtn.textContent = isSavingSolution ? 'Saving...' : 'Save Draft';
+  }
+  if (gradeSolutionBtn) {
+    gradeSolutionBtn.disabled = isSavingSolution || isSubmittingGrade || isFinal;
+    gradeSolutionBtn.textContent = isSubmittingGrade ? 'Submitting...' : 'Submit for Grading';
+  }
+}
+
+function solutionDisplayName(solution) {
+  return solution?.title || solution?.id || 'Untitled';
+}
+
+function renderSolutionBrowser() {
+  if (!solutionBrowser || !whiteboardDraftList || !whiteboardFinalList) return;
+  whiteboardDraftList.innerHTML = '';
+  whiteboardFinalList.innerHTML = '';
+
+  const renderGroup = (container, solutions, emptyMessage) => {
+    if (!Array.isArray(solutions) || solutions.length === 0) {
+      const empty = document.createElement('span');
+      empty.className = 'empty-solution';
+      empty.textContent = emptyMessage;
+      container.appendChild(empty);
+      return;
+    }
+
+    solutions.forEach(solution => {
+      const link = document.createElement('a');
+      link.href = `/whiteboard.html?solution_id=${encodeURIComponent(solution.id)}`;
+      link.className = `solution-link ${solution.solution_type === 'draft' ? 'draft-solution' : 'user-solution'}`;
+      if (currentSolution && solution.id === currentSolution.id) {
+        link.classList.add('active');
+      }
+      const scoreText = solution.solution_type === 'graded' && solution.score !== undefined && solution.score !== null
+        ? ` (${solution.score}/${solution.max_score || 100})`
+        : '';
+      link.textContent = `${solutionDisplayName(solution)}${scoreText}`;
+      container.appendChild(link);
+    });
+  };
+
+  renderGroup(whiteboardDraftList, availableDraftSolutions, 'No drafts yet.');
+  renderGroup(whiteboardFinalList, availableFinalSolutions, 'No finals yet.');
+}
+
+function currentDraftName() {
+  return solutionDisplayName(currentSolution) || `Draft for ${currentProblem?.title || currentProblem?.id || 'problem'}`;
+}
+
+function openSaveDraftDialog() {
+  if (!saveDraftDialog || !draftNameInput) return;
+  const defaultName = currentDraftName();
+  draftNameInput.value = defaultName;
+  if (saveDraftHelper) {
+    saveDraftHelper.textContent = isFinalSolution()
+      ? 'This will create a new draft branched from the current final solution.'
+      : 'Leave the name unchanged to overwrite the current draft. Change it to create a new draft branch.';
+  }
+  saveDraftDialog.classList.remove('hidden');
+  setTimeout(() => {
+    draftNameInput.focus();
+    draftNameInput.select();
+  }, 0);
+}
+
+function hideSaveDraftDialog() {
+  if (saveDraftDialog) {
+    saveDraftDialog.classList.add('hidden');
+  }
+}
+
+function shouldBranchDraft(title) {
+  if (isFinalSolution()) {
+    return true;
+  }
+  if (!currentSolution || currentSolution.solution_type !== 'draft') {
+    return false;
+  }
+  return title.trim() !== currentDraftName().trim();
+}
+
+function setReadOnlyMode(enabled) {
+  readOnlyMode = Boolean(enabled);
+  canvas.style.pointerEvents = readOnlyMode ? 'none' : 'auto';
+  [
+    undoBtn,
+    redoBtn,
+    clearBtn,
+    toolPen,
+    toolEraser,
+    colorInput,
+    sizeInput,
+    bgColorInput,
+  ].forEach(element => {
+    if (element) element.disabled = readOnlyMode;
+  });
+  textBoxes.forEach(box => {
+    if (box?.element) box.element.disabled = readOnlyMode;
+  });
+}
+
+function resetBoardState() {
+  history.length = 0;
+  redoStack.length = 0;
+  clearTextBoxes();
+  setReadOnlyMode(false);
+  bgColor = bgColorInput ? bgColorInput.value : '#ffffff';
+  if (bgColorInput) bgColorInput.value = bgColor;
+  canvas.style.backgroundColor = bgColor;
+  fullRedraw();
+  updateButtonsState();
+}
+
+function loadPaperImage(imageUrl) {
+  return new Promise((resolve, reject) => {
+    if (!imageUrl) {
+      paperImage = null;
+      paperImageSource = null;
+      setCanvasSize(true);
+      resolve();
+      return;
+    }
+
+    const img = new Image();
+    img.onload = () => {
+      paperImage = img;
+      paperImageSource = imageUrl;
+      const scale = Math.max(1, 800 / img.naturalWidth, 600 / img.naturalHeight);
+      fixedCanvasWidth = Math.round(img.naturalWidth * scale);
+      fixedCanvasHeight = Math.round(img.naturalHeight * scale);
+      setCanvasSize(true);
+      resolve();
+    };
+    img.onerror = () => reject(new Error('Failed to load problem image'));
+    img.src = imageUrl;
+  });
+}
+
+function restoreCanvasData(canvasData) {
+  if (!canvasData) return;
+  history.length = 0;
+  redoStack.length = 0;
+  clearTextBoxes();
+  if (canvasData.bg_color) {
+    bgColor = canvasData.bg_color;
+    if (bgColorInput) bgColorInput.value = bgColor;
+    canvas.style.backgroundColor = bgColor;
+  }
+  if (Array.isArray(canvasData.strokes)) {
+    canvasData.strokes.forEach(stroke => history.push(stroke));
+  }
+  fullRedraw();
+  if (Array.isArray(canvasData.text_boxes)) {
+    canvasData.text_boxes.forEach(snapshot => {
+      const box = createTextBox(Number(snapshot.x) || 10, Number(snapshot.y) || 10, {
+        value: snapshot.value || '',
+        color: snapshot.color || colorInput.value,
+        fontSizePx: Number(snapshot.font_size_px) || undefined,
+      });
+      if (box) {
+        box.element.style.left = `${Number(snapshot.x) || 10}px`;
+        box.element.style.top = `${Number(snapshot.y) || 10}px`;
+        box.z = Number(snapshot.z) || box.z;
+        box.element.style.zIndex = String(box.z);
+        autoSizeTextBox(box);
+      }
+    });
+  }
+  updateTextBoxInteractivity();
+  updateButtonsState();
+}
+
+function drawPaperImage() {
+  if (!paperImage) return;
+  ctx.save();
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.drawImage(paperImage, 0, 0, fixedCanvasWidth, fixedCanvasHeight);
+  ctx.restore();
+}
+
+async function renderWhiteboardContext(problem, selectedSolution, draftSolutions = [], finalSolutions = []) {
+  currentProblem = problem || null;
+  currentSolution = selectedSolution || null;
+  currentUserSolutionId = currentSolution && currentSolution.solution_type === 'draft' ? currentSolution.id : null;
+  selectedGradedSolution = currentSolution && currentSolution.solution_type === 'graded' ? currentSolution : null;
+  availableDraftSolutions = Array.isArray(draftSolutions) ? draftSolutions : [];
+  availableFinalSolutions = Array.isArray(finalSolutions) ? finalSolutions : [];
+  availableSolutions = [
+    ...availableDraftSolutions,
+    ...availableFinalSolutions,
+  ];
+
+  if (contextTitle) {
+    contextTitle.textContent = problem ? problem.title : 'Whiteboard';
+  }
+  updateContextSubtitle();
+  renderSolutionBrowser();
+  updateSolutionActionState();
+
+  if (problemReference) problemReference.classList.add('hidden');
+  if (problemImage) problemImage.removeAttribute('src');
+  if (solutionReferencePanel) solutionReferencePanel.classList.add('hidden');
+  if (solutionImage) solutionImage.removeAttribute('src');
+
+  resetBoardState();
+  const paperSource = currentSolution?.canvas_data?.paper_image_source
+    || (currentSolution && currentSolution.image_url && !currentSolution.canvas_data ? currentSolution.image_url : null)
+    || (problem ? problem.image_url : null);
+  await loadPaperImage(paperSource);
+  if (currentSolution && currentSolution.canvas_data) {
+    restoreCanvasData(currentSolution.canvas_data);
+  }
+  setReadOnlyMode(isFinalSolution());
+  updateSolutionActionState();
+}
+
+async function loadWhiteboardContext() {
+  const params = new URLSearchParams(window.location.search);
+  const solutionId = params.get('solution_id');
+  const problemId = params.get('problem_id');
+  if (!solutionId && !problemId) {
+    window.location.href = '/progress.html';
+    return;
+  }
+
+  const query = solutionId
+    ? `solution_id=${encodeURIComponent(solutionId)}`
+    : `problem_id=${encodeURIComponent(problemId)}`;
+
+  try {
+    const data = await apiRequest(`/api/whiteboard/context?${query}`);
+    await renderWhiteboardContext(
+      data.problem,
+      data.solution,
+      data.draft_solutions,
+      data.final_solutions,
+    );
+    if (data.solution && data.solution.solution_type === 'graded') {
+      displayGradingResults(
+        data.solution.grading_result,
+        data.solution.grading_steps,
+        data.solution,
+      );
+    }
+  } catch (error) {
+    if (contextSubtitle) contextSubtitle.textContent = error.message;
+  }
+}
+
 clearBtn.addEventListener('click', () => {
   if (history.length === 0 && textBoxes.length === 0) return;
   history.length = 0;
@@ -808,47 +1210,200 @@ clearBtn.addEventListener('click', () => {
   clearTextBoxes();
 });
 
-savePngBtn.addEventListener('click', () => {
-  // Create a temporary canvas with background color for PNG
-  const tempCanvas = document.createElement('canvas');
-  const tempCtx = tempCanvas.getContext('2d');
-  
-  // Set canvas size to match original
-  tempCanvas.width = canvas.width;
-  tempCanvas.height = canvas.height;
-  
-  // Fill with background color
-  tempCtx.fillStyle = bgColor || '#ffffff';
-  tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
-  
-  // Draw the original canvas on top
-  tempCtx.drawImage(canvas, 0, 0);
-  renderTextBoxesToContext(tempCtx);
-  
-  // Export as PNG
-  const link = document.createElement('a');
-  link.download = `handwriting-${Date.now()}.png`;
-  link.href = tempCanvas.toDataURL('image/png');
-  link.click();
-});
+async function saveCurrentSolution({ saveAs = false, titleOverride = null } = {}) {
+  if (!currentProblem) {
+    throw new Error('Open a problem from progress before saving.');
+  }
+  if (isFinalSolution() && !saveAs) {
+    throw new Error('This solution is final. Save Draft to branch it into a new draft.');
+  }
+  isSavingSolution = true;
+  updateSolutionActionState();
 
-saveSvgBtn.addEventListener('click', () => {
-  const svg = strokesToSVG(history, canvas.clientWidth, canvas.clientHeight, bgColor);
-  const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.download = `handwriting-${Date.now()}.svg`;
-  link.href = url;
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-});
+  try {
+    const sourceSolutionId = currentSolution ? currentSolution.id : null;
+    const title = (titleOverride || '').trim() || currentDraftName();
+    const data = await apiRequest('/api/solutions', {
+      method: 'POST',
+      body: JSON.stringify({
+        problem_id: currentProblem.id,
+        solution_id: saveAs ? sourceSolutionId : currentUserSolutionId,
+        source_solution_id: saveAs ? sourceSolutionId : null,
+        save_as: saveAs,
+        title,
+        canvas_data: serializeCanvasData(),
+        image_data: exportBoardDataUrl(),
+      }),
+    });
+    currentSolution = data.solution;
+    currentUserSolutionId = data.solution.id;
+    selectedGradedSolution = null;
+    availableDraftSolutions = [
+      data.solution,
+      ...availableDraftSolutions.filter(item => item.id !== data.solution.id),
+    ];
+    availableSolutions = [...availableDraftSolutions, ...availableFinalSolutions];
+    setReadOnlyMode(false);
+    hideGradingDialog();
+    hideSaveDraftDialog();
+    if (problemReference) problemReference.classList.add('hidden');
+    if (problemImage) problemImage.removeAttribute('src');
+    if (solutionReferencePanel) solutionReferencePanel.classList.add('hidden');
+    if (solutionImage) solutionImage.removeAttribute('src');
+    updateContextSubtitle();
+    renderSolutionBrowser();
+    window.history.replaceState(null, '', `/whiteboard.html?solution_id=${encodeURIComponent(data.solution.id)}`);
+    return data.solution;
+  } finally {
+    isSavingSolution = false;
+    updateSolutionActionState();
+  }
+}
+
+if (saveToServerBtn) {
+  saveToServerBtn.addEventListener('click', () => {
+    openSaveDraftDialog();
+  });
+}
+
+if (closeSaveDraftBtn) {
+  closeSaveDraftBtn.addEventListener('click', () => {
+    hideSaveDraftDialog();
+  });
+}
+
+if (cancelSaveDraftBtn) {
+  cancelSaveDraftBtn.addEventListener('click', () => {
+    hideSaveDraftDialog();
+  });
+}
+
+if (saveDraftForm) {
+  saveDraftForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const title = (draftNameInput?.value || '').trim();
+    if (!title) {
+      if (draftNameInput) draftNameInput.focus();
+      return;
+    }
+
+    try {
+      const saveAs = shouldBranchDraft(title);
+      await saveCurrentSolution({ saveAs, titleOverride: title });
+    } catch (error) {
+      alert(error.message);
+    }
+  });
+}
+
+async function gradeSolutionWithStream(solutionId) {
+  resetGradingDialogForStream();
+  const response = await fetch(`/api/solutions/${encodeURIComponent(solutionId)}/grade/stream`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ grading_mode: 'simple_llm' }),
+  });
+
+  if (response.status === 401) {
+    window.location.href = '/';
+    throw new Error('Authentication required');
+  }
+  if (!response.ok || !response.body) {
+    throw new Error(`Request failed with ${response.status}`);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let completedPayload = null;
+
+  const processEventBlock = (block) => {
+    const lines = block.split('\n');
+    let eventName = 'message';
+    const dataLines = [];
+    lines.forEach(line => {
+      if (line.startsWith('event:')) {
+        eventName = line.slice(6).trim();
+      } else if (line.startsWith('data:')) {
+        dataLines.push(line.slice(5).trimStart());
+      }
+    });
+    if (!dataLines.length) return;
+    const payload = JSON.parse(dataLines.join('\n'));
+    if (eventName === 'error') {
+      throw new Error(payload.error || 'Grading failed');
+    }
+    if (eventName === 'status' || eventName === 'log') {
+      appendGradingStreamLine(payload.message);
+      if (gradingSummary && payload.message) {
+        gradingSummary.textContent = payload.message;
+      }
+      return;
+    }
+    if (eventName === 'complete') {
+      completedPayload = payload;
+    }
+  };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+    const blocks = buffer.split('\n\n');
+    buffer = blocks.pop() || '';
+    for (const block of blocks) {
+      if (block.trim()) {
+        processEventBlock(block);
+      }
+    }
+    if (done) break;
+  }
+  if (buffer.trim()) {
+    processEventBlock(buffer);
+  }
+  if (!completedPayload) {
+    throw new Error('Grading ended before returning a score');
+  }
+  return completedPayload;
+}
+
+if (gradeSolutionBtn) {
+  gradeSolutionBtn.addEventListener('click', async () => {
+    try {
+      isSubmittingGrade = true;
+      updateSolutionActionState();
+      const solution = await saveCurrentSolution({ saveAs: false, titleOverride: currentDraftName() });
+
+      const data = await gradeSolutionWithStream(solution.id);
+      currentSolution = data.solution;
+      currentUserSolutionId = null;
+      selectedGradedSolution = data.solution;
+      setReadOnlyMode(true);
+      availableFinalSolutions = [data.solution, ...availableFinalSolutions.filter(item => item.id !== data.solution.id)];
+      availableSolutions = [...availableDraftSolutions, ...availableFinalSolutions];
+      updateContextSubtitle();
+      renderSolutionBrowser();
+      if (problemReference) problemReference.classList.add('hidden');
+      if (problemImage) problemImage.removeAttribute('src');
+      if (solutionReferencePanel) solutionReferencePanel.classList.add('hidden');
+      if (solutionImage) solutionImage.removeAttribute('src');
+      displayGradingResults(data.grading_result, data.grading_steps, data.solution);
+    } catch (error) {
+      alert(error.message);
+    } finally {
+      isSubmittingGrade = false;
+      updateSolutionActionState();
+    }
+  });
+}
 
 // Analyze with AI functionality
-analyzeBtn.addEventListener('click', async () => {
-  if (history.length === 0 && textBoxes.length === 0) {
-    alert('Please add drawings or text on the whiteboard first!');
-    return;
-  }
+if (analyzeBtn) {
+  analyzeBtn.addEventListener('click', async () => {
+    if (history.length === 0 && textBoxes.length === 0) {
+      alert('Please add drawings or text on the whiteboard first!');
+      return;
+    }
   
   try {
     analyzeBtn.disabled = true;
@@ -885,7 +1440,8 @@ analyzeBtn.addEventListener('click', async () => {
     
     const response = await fetch('/api/process-image', {
       method: 'POST',
-      body: formData
+      body: formData,
+      credentials: 'include'
     });
     
     if (!response.ok) {
@@ -907,12 +1463,18 @@ analyzeBtn.addEventListener('click', async () => {
     analyzeBtn.disabled = false;
     analyzeBtn.textContent = 'Analyze with AI';
   }
-});
+  });
+}
 
 // Results panel management
 closeResultsBtn.addEventListener('click', () => {
   hideResultsPanel();
 });
+if (closeGradingBtn) {
+  closeGradingBtn.addEventListener('click', () => {
+    hideGradingDialog();
+  });
+}
 
 // Close panel when clicking outside
 resultsPanel.addEventListener('click', (e) => {
@@ -920,9 +1482,31 @@ resultsPanel.addEventListener('click', (e) => {
     hideResultsPanel();
   }
 });
+if (gradingDialog) {
+  gradingDialog.addEventListener('click', (e) => {
+    if (e.target === gradingDialog) {
+      hideGradingDialog();
+    }
+  });
+}
+if (saveDraftDialog) {
+  saveDraftDialog.addEventListener('click', (e) => {
+    if (e.target === saveDraftDialog) {
+      hideSaveDraftDialog();
+    }
+  });
+}
 
 // ESC key to close panel
 document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && saveDraftDialog && !saveDraftDialog.classList.contains('hidden')) {
+    hideSaveDraftDialog();
+    return;
+  }
+  if (e.key === 'Escape' && gradingDialog && !gradingDialog.classList.contains('hidden')) {
+    hideGradingDialog();
+    return;
+  }
   if (e.key === 'Escape' && !resultsPanel.classList.contains('hidden')) {
     hideResultsPanel();
   }
@@ -969,7 +1553,86 @@ function hideError() {
   resultsError.classList.add('hidden');
 }
 
+function showGradingDialog() {
+  if (gradingDialog) {
+    gradingDialog.classList.remove('hidden');
+  }
+}
+
+function hideGradingDialog() {
+  if (gradingDialog) {
+    gradingDialog.classList.add('hidden');
+  }
+}
+
+function appendGradingStreamLine(message) {
+  if (!gradingStream || !message) return;
+  gradingStream.classList.remove('hidden');
+  const line = document.createElement('div');
+  line.className = 'grading-stream-line';
+  line.textContent = message;
+  gradingStream.appendChild(line);
+  gradingStream.scrollTop = gradingStream.scrollHeight;
+}
+
+function resetGradingDialogForStream() {
+  hideResultsPanel();
+  if (gradingStream) {
+    gradingStream.innerHTML = '';
+    gradingStream.classList.remove('hidden');
+  }
+  if (gradingScore) gradingScore.textContent = 'Grading...';
+  if (gradingSummary) gradingSummary.textContent = 'Waiting for the grader to start.';
+  setIssueList(gradingMajorList, [], 'No major deductions have been reported yet.');
+  setIssueList(gradingMinorList, [], 'No minor deductions have been reported yet.');
+  setIssueList(gradingStepList, [], 'The grading transcript will update as work completes.');
+  if (gradingConfidenceFill) gradingConfidenceFill.style.width = '0%';
+  if (gradingConfidenceText) gradingConfidenceText.textContent = 'Running';
+  appendGradingStreamLine('Submitting the saved whiteboard for grading...');
+  showGradingDialog();
+}
+
+function setIssueList(listElement, items, emptyMessage) {
+  if (!listElement) return;
+  listElement.innerHTML = '';
+  if (Array.isArray(items) && items.length) {
+    items.forEach(item => {
+      const li = document.createElement('li');
+      if (typeof item === 'string') {
+        li.textContent = item;
+      } else {
+        const points = item.points_taken ?? item.deducted_points ?? item.points_deducted;
+        const reason = item.reason || item.deduction_reason || item.description || item.content || 'Saved detail';
+        const step = item.step || item.deduction_step || item.step_number || item.step_id;
+        const confidence = item.confidence ?? item.deduction_confidence_score ?? item.confidence_score;
+        const segments = [];
+        if (points !== undefined && points !== null && points !== '') {
+          segments.push(`-${points} pts`);
+        }
+        segments.push(reason);
+        if (step !== undefined && step !== null && step !== '') {
+          segments.push(`(${step})`);
+        }
+        if (confidence !== undefined && confidence !== null && confidence !== '') {
+          const percent = Math.round(Number(confidence) * 100);
+          if (!Number.isNaN(percent)) {
+            segments.push(`[${percent}% confidence]`);
+          }
+        }
+        li.textContent = segments.join(' ');
+      }
+      listElement.appendChild(li);
+    });
+    return;
+  }
+  const li = document.createElement('li');
+  li.textContent = emptyMessage;
+  listElement.appendChild(li);
+}
+
 function displayResults(analysis) {
+  hideGradingDialog();
+  if (resultsTitle) resultsTitle.textContent = 'AI Analysis Results';
   // Update text content
   textRecognition.textContent = analysis.text_recognition || 'No text detected';
   visualElements.textContent = analysis.visual_elements || 'No visual elements detected';
@@ -993,8 +1656,65 @@ function displayResults(analysis) {
   const confidence = Math.round((analysis.confidence || 0) * 100);
   confidenceFill.style.width = `${confidence}%`;
   confidenceText.textContent = `${confidence}%`;
-  
+
   showResults();
+}
+
+function displayGradingResults(gradingResult, gradingSteps = [], gradedSolution = null) {
+  hideResultsPanel();
+  const result = gradingResult?.result || gradingResult?.score || gradingResult || {};
+  const { score, maxScore } = scoreFromGradingPayload(gradedSolution, gradingResult);
+  const summary = result.summary || gradingResult?.summary || gradingResult?.score?.summary || 'The grading result has been saved.';
+  const confidence = Number(
+    result.confidence_score
+      ?? result.confidence
+      ?? gradingResult?.confidence
+      ?? gradingResult?.result?.confidence_score
+      ?? 0
+  );
+  const steps = Array.isArray(gradingSteps) && gradingSteps.length
+    ? gradingSteps
+    : (Array.isArray(result.steps) ? result.steps : []);
+  const majorPoints = gradedSolution?.major_points
+    || gradedSolution?.points_taken?.major
+    || result.major_issues
+    || [];
+  const minorPoints = gradedSolution?.minor_points
+    || gradedSolution?.points_taken?.minor
+    || result.minor_issues
+    || [];
+
+  if (gradingScore) {
+    gradingScore.textContent = score !== undefined && score !== null
+      ? `${score} / ${maxScore || 100}`
+      : 'Saved with this submission';
+  }
+  if (gradingSummary) {
+    gradingSummary.textContent = summary;
+  }
+
+  setIssueList(gradingMajorList, majorPoints, 'No major deductions were recorded.');
+  setIssueList(gradingMinorList, minorPoints, 'No minor deductions were recorded.');
+  setIssueList(
+    gradingStepList,
+    steps.map(step => {
+      const stepNumber = step.step_number || step.step_id || '';
+      const content = step.content || step.raw_text || step.normalized_text || JSON.stringify(step);
+      const validity = step.is_valid === false ? 'issue found' : '';
+      return stepNumber ? `Step ${stepNumber}: ${content}${validity ? ` (${validity})` : ''}` : `${content}${validity ? ` (${validity})` : ''}`;
+    }),
+    'Detailed grading steps are stored with this submission.',
+  );
+
+  const confidencePercent = Math.round(Math.max(0, Math.min(1, confidence || 0)) * 100);
+  if (gradingConfidenceFill) {
+    gradingConfidenceFill.style.width = `${confidencePercent}%`;
+  }
+  if (gradingConfidenceText) {
+    gradingConfidenceText.textContent = confidencePercent ? `${confidencePercent}%` : 'Saved';
+  }
+
+  showGradingDialog();
 }
 
 /* Keyboard shortcuts */
@@ -1029,6 +1749,7 @@ canvas.addEventListener('pointerleave', endStroke);
 setCanvasSize();
 updateButtonsState();
 updateTextBoxInteractivity();
+loadWhiteboardContext();
 
 /* Controls state */
 function updateButtonsState() {

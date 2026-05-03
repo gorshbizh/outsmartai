@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OutSmartAI Whiteboard</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="whiteboard-context-bar">
+      <a href="/progress.html" class="nav-link">Progress</a>
+      <div class="whiteboard-context-copy">
+        <h1 id="context-title">Whiteboard</h1>
+        <p id="context-subtitle">Loading problem context...</p>
+      </div>
+      <button id="logoutBtn" class="button-secondary" type="button">Logout</button>
+    </div>
+    <section id="problem-reference" class="problem-reference hidden" aria-label="Problem context">
+      <div class="reference-panel">
+        <h2>Problem</h2>
+        <img id="problem-image" alt="Problem image">
+      </div>
+      <div id="solution-reference-panel" class="reference-panel hidden">
+        <h2>Loaded solution</h2>
+        <img id="solution-image" alt="Solution image">
+      </div>
+    </section>
+    <nav class="toolbar" aria-label="Drawing toolbar">
+      <div class="tool-group">
+        <label>
+          <input type="radio" name="tool" value="pen" id="tool-pen" checked>
+          Pen
+        </label>
+        <label>
+          <input type="radio" name="tool" value="eraser" id="tool-eraser">
+          Eraser
+        </label>
+      </div>
+
+      <div class="tool-group">
+        <label for="color">Color</label>
+        <input type="color" id="color" value="#000000">
+      </div>
+
+      <div class="tool-group">
+        <label for="bgColor">Background</label>
+        <input type="color" id="bgColor" value="#ffffff">
+      </div>
+
+      <div class="tool-group">
+        <label for="size">Size</label>
+        <input type="range" id="size" min="1" max="50" value="4">
+        <span id="sizeVal" aria-live="polite">4 px</span>
+      </div>
+
+      <div class="tool-group">
+        <button id="undo" title="Undo (Ctrl+Z)">Undo</button>
+        <button id="redo" title="Redo (Ctrl+Y / Ctrl+Shift+Z)">Redo</button>
+        <button id="clear" title="Clear">Clear</button>
+      </div>
+
+      <div class="tool-group">
+        <button id="saveToServer">Save Draft</button>
+        <button id="gradeSolution">Submit for Grading</button>
+      </div>
+    </nav>
+  </header>
+
+  <main>
+    <div id="board-container">
+      <canvas id="board" aria-label="Drawing canvas"></canvas>
+    </div>
+  </main>
+
+  <footer class="app-footer">
+    <span class="tip">Supports mouse, touch, and pen pressure (Pointer Events).</span>
+    <span class="spacer"></span>
+    <a href="#" id="ossLink" target="_blank" rel="noopener noreferrer">Open Source (MIT)</a>
+  </footer>
+
+  <!-- Analysis Results Panel -->
+  <div id="results-panel" class="results-panel hidden">
+    <div class="results-header">
+      <h3 id="results-title">AI Analysis Results</h3>
+      <button id="close-results" class="close-btn">&times;</button>
+    </div>
+    <div class="results-content">
+      <div id="results-loading" class="loading hidden">
+        <div class="spinner"></div>
+        <p>Analyzing your whiteboard...</p>
+      </div>
+      <div id="results-data" class="results-data hidden">
+        <div class="result-section">
+          <h4>Text Recognition</h4>
+          <p id="text-recognition">-</p>
+        </div>
+        <div class="result-section">
+          <h4>Visual Elements</h4>
+          <p id="visual-elements">-</p>
+        </div>
+        <div class="result-section">
+          <h4>Content Analysis</h4>
+          <p id="content-analysis">-</p>
+        </div>
+        <div class="result-section">
+          <h4>Suggestions</h4>
+          <ul id="suggestions-list"></ul>
+        </div>
+        <div class="result-section">
+          <h4>Confidence</h4>
+          <div id="confidence-bar">
+            <div id="confidence-fill"></div>
+            <span id="confidence-text">0%</span>
+          </div>
+        </div>
+      </div>
+      <div id="results-error" class="results-error hidden">
+        <p>Failed to analyze the image. Please try again.</p>
+      </div>
+    </div>
+  </div>
+
+  <div id="grading-dialog" class="results-panel hidden" role="dialog" aria-modal="true" aria-labelledby="grading-title">
+    <div class="results-header">
+      <h3 id="grading-title">Score</h3>
+      <button id="close-grading" class="close-btn" type="button">&times;</button>
+    </div>
+    <div class="results-content">
+      <div id="grading-stream" class="grading-stream hidden" role="status" aria-live="polite"></div>
+      <div class="result-section">
+        <h4>Grade</h4>
+        <p id="grading-score">-</p>
+      </div>
+      <div class="result-section">
+        <h4>Summary</h4>
+        <p id="grading-summary">-</p>
+      </div>
+      <div class="result-section">
+        <h4>Major Points Taken</h4>
+        <ul id="grading-major-list"></ul>
+      </div>
+      <div class="result-section">
+        <h4>Minor Points Taken</h4>
+        <ul id="grading-minor-list"></ul>
+      </div>
+      <div class="result-section">
+        <h4>Grading Steps</h4>
+        <ul id="grading-step-list"></ul>
+      </div>
+      <div class="result-section">
+        <h4>Confidence</h4>
+        <div id="grading-confidence-bar" class="confidence-bar">
+          <div id="grading-confidence-fill"></div>
+          <span id="grading-confidence-text">-</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="save-draft-dialog" class="results-panel hidden" role="dialog" aria-modal="true" aria-labelledby="save-draft-title">
+    <div class="results-header">
+      <h3 id="save-draft-title">Save Draft</h3>
+      <button id="close-save-draft" class="close-btn" type="button">&times;</button>
+    </div>
+    <div class="results-content">
+      <form id="save-draft-form" class="stacked-form">
+        <label for="draft-name-input">
+          Draft name
+          <input id="draft-name-input" name="draft_name" type="text" maxlength="255" required>
+        </label>
+        <p id="save-draft-helper" class="muted-copy">Leave the name unchanged to overwrite the current draft.</p>
+        <div class="dialog-actions">
+          <button id="cancel-save-draft" type="button" class="button-secondary">Cancel</button>
+          <button id="confirm-save-draft" type="submit">Save Draft</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
