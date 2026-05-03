@@ -152,6 +152,13 @@ async function setupProgressPage() {
   const sentinel = document.getElementById('progressSentinel');
   const state = { offset: 0, limit: 12, loading: false, hasMore: true, total: 0 };
 
+  async function refreshProgress() {
+    state.offset = 0;
+    state.hasMore = true;
+    list.innerHTML = '';
+    await loadNextPage();
+  }
+
   async function loadNextPage() {
     if (state.loading || !state.hasMore) return;
     state.loading = true;
@@ -161,7 +168,7 @@ async function setupProgressPage() {
       state.total = data.total;
       state.hasMore = data.has_more;
       state.offset += data.items.length;
-      data.items.forEach(problem => list.appendChild(renderProblem(problem)));
+      data.items.forEach(problem => list.appendChild(renderProblem(problem, refreshProgress)));
       count.textContent = `${state.offset} of ${state.total} problems loaded`;
       loadMore.classList.toggle('hidden', !state.hasMore);
       setMessage(message, state.offset ? '' : 'No problems are available yet.');
@@ -185,7 +192,48 @@ async function setupProgressPage() {
   await loadNextPage();
 }
 
-function renderProblem(problem) {
+function scoreLabel(solution) {
+  const scoreText = solution.score !== undefined && solution.score !== null
+    ? `${solution.score}/${solution.max_score || 100}`
+    : 'score';
+  return scoreText;
+}
+
+function createSolutionChip(solution, label, className, options = {}) {
+  const chip = document.createElement('span');
+  chip.className = 'solution-chip';
+
+  const link = document.createElement('a');
+  link.href = `/whiteboard.html?solution_id=${encodeURIComponent(solution.id)}`;
+  link.className = className;
+  link.textContent = label;
+  chip.appendChild(link);
+
+  if (options.onDelete) {
+    const deleteButton = document.createElement('button');
+    deleteButton.type = 'button';
+    deleteButton.className = 'delete-solution';
+    deleteButton.setAttribute('aria-label', options.deleteLabel || `Delete ${label}`);
+    deleteButton.title = options.deleteTitle || 'Delete';
+    deleteButton.textContent = 'x';
+    deleteButton.addEventListener('click', async () => {
+      if (options.confirmMessage && !window.confirm(options.confirmMessage)) return;
+      deleteButton.disabled = true;
+      try {
+        await apiRequest(`/api/solutions/${encodeURIComponent(solution.id)}`, { method: 'DELETE' });
+        await options.onDelete();
+      } catch (error) {
+        deleteButton.disabled = false;
+        window.alert(error.message);
+      }
+    });
+    chip.appendChild(deleteButton);
+  }
+
+  return chip;
+}
+
+function renderProblem(problem, onRefresh) {
   const article = document.createElement('article');
   article.className = 'problem-item';
 
@@ -206,58 +254,99 @@ function renderProblem(problem) {
   problemLink.appendChild(image);
   problemLink.appendChild(text);
 
-  const draftRow = document.createElement('div');
-  draftRow.className = 'solution-row';
-  const draftLabel = document.createElement('span');
-  draftLabel.className = 'solution-label';
-  draftLabel.textContent = 'drafts:';
-  draftRow.appendChild(draftLabel);
-
   const draftSolutions = Array.isArray(problem.draft_solutions) ? problem.draft_solutions : [];
+  const unattachedScores = Array.isArray(problem.unattached_scores) ? problem.unattached_scores : [];
+  const draftTree = document.createElement('div');
+  draftTree.className = 'draft-score-tree';
+
   if (draftSolutions.length) {
-    draftSolutions.forEach(solution => {
-      const draftLink = document.createElement('a');
-      draftLink.href = `/whiteboard.html?solution_id=${encodeURIComponent(solution.id)}`;
-      draftLink.className = 'solution-link draft-solution';
-      draftLink.textContent = solution.title || solution.id;
-      draftRow.appendChild(draftLink);
+    draftSolutions.forEach(draft => {
+      const draftGroup = document.createElement('div');
+      draftGroup.className = 'draft-score-group';
+
+      const draftRow = document.createElement('div');
+      draftRow.className = 'solution-row draft-parent-row';
+      const draftLabel = document.createElement('span');
+      draftLabel.className = 'solution-label';
+      draftLabel.textContent = 'draft';
+      draftRow.appendChild(draftLabel);
+      draftRow.appendChild(createSolutionChip(
+        draft,
+        draft.title || draft.id,
+        'solution-link draft-solution',
+        {
+          onDelete: onRefresh,
+          deleteLabel: `Delete draft ${draft.title || draft.id}`,
+          deleteTitle: 'Delete draft and its scores',
+          confirmMessage: 'Delete this draft and all scores that belong to it?',
+        },
+      ));
+      draftGroup.appendChild(draftRow);
+
+      const scores = Array.isArray(draft.score_solutions) ? draft.score_solutions : [];
+      const scoreRow = document.createElement('div');
+      scoreRow.className = 'solution-row score-child-row';
+      const scoreLabelElement = document.createElement('span');
+      scoreLabelElement.className = 'solution-label';
+      scoreLabelElement.textContent = 'scores';
+      scoreRow.appendChild(scoreLabelElement);
+
+      if (scores.length) {
+        scores.forEach(score => {
+          scoreRow.appendChild(createSolutionChip(
+            score,
+            scoreLabel(score),
+            'solution-link user-solution',
+            {
+              onDelete: onRefresh,
+              deleteLabel: `Delete score ${scoreLabel(score)}`,
+              deleteTitle: 'Delete score',
+              confirmMessage: 'Delete this score?',
+            },
+          ));
+        });
+      } else {
+        const emptyScore = document.createElement('span');
+        emptyScore.className = 'empty-solution';
+        emptyScore.textContent = 'no score';
+        scoreRow.appendChild(emptyScore);
+      }
+
+      draftGroup.appendChild(scoreRow);
+      draftTree.appendChild(draftGroup);
     });
   } else {
     const emptyDraft = document.createElement('span');
-    emptyDraft.className = 'empty-solution';
+    emptyDraft.className = 'empty-solution solution-row';
     emptyDraft.textContent = 'no draft';
-    draftRow.appendChild(emptyDraft);
+    draftTree.appendChild(emptyDraft);
   }
 
-  const solutions = document.createElement('div');
-  solutions.className = 'solution-row';
-  const label = document.createElement('span');
-  label.className = 'solution-label';
-  label.textContent = 'scores:';
-  solutions.appendChild(label);
-
-  const gradedSolutions = Array.isArray(problem.final_solutions) ? problem.final_solutions : [];
-  if (!gradedSolutions.length) {
-    const empty = document.createElement('span');
-    empty.className = 'empty-solution';
-    empty.textContent = 'no score';
-    solutions.appendChild(empty);
-  } else {
-    gradedSolutions.forEach(solution => {
-      const link = document.createElement('a');
-      link.href = `/whiteboard.html?solution_id=${encodeURIComponent(solution.id)}`;
-      const scoreText = solution.score !== undefined && solution.score !== null
-        ? ` (${solution.score}/${solution.max_score || 100})`
-        : '';
-      link.textContent = `${solution.title || solution.id}${scoreText}`;
-      link.className = solution.source_kind === 'user' ? 'solution-link user-solution' : 'solution-link';
-      solutions.appendChild(link);
+  if (unattachedScores.length) {
+    const orphanRow = document.createElement('div');
+    orphanRow.className = 'solution-row score-child-row unattached-score-row';
+    const orphanLabel = document.createElement('span');
+    orphanLabel.className = 'solution-label';
+    orphanLabel.textContent = 'scores without draft';
+    orphanRow.appendChild(orphanLabel);
+    unattachedScores.forEach(score => {
+      orphanRow.appendChild(createSolutionChip(
+        score,
+        scoreLabel(score),
+        'solution-link user-solution',
+        {
+          onDelete: onRefresh,
+          deleteLabel: `Delete score ${scoreLabel(score)}`,
+          deleteTitle: 'Delete score',
+          confirmMessage: 'Delete this score?',
+        },
+      ));
     });
+    draftTree.appendChild(orphanRow);
   }
 
   article.appendChild(problemLink);
-  article.appendChild(draftRow);
-  article.appendChild(solutions);
+  article.appendChild(draftTree);
   return article;
 }
 

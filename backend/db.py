@@ -873,9 +873,24 @@ class AppRepository:
         items = []
         for problem in problem_rows:
             payload = _problem_payload(problem)
-            payload["draft_solutions"] = draft_lists_by_problem.get(problem["id"], [])
-            payload["final_solutions"] = final_lists_by_problem.get(problem["id"], [])
+            draft_solutions = draft_lists_by_problem.get(problem["id"], [])
+            final_solutions = final_lists_by_problem.get(problem["id"], [])
+            scores_by_draft: Dict[str, List[Dict[str, Any]]] = {}
+            unattached_scores: List[Dict[str, Any]] = []
+            for score in final_solutions:
+                parent_id = score.get("parent_solution_id")
+                if parent_id:
+                    scores_by_draft.setdefault(parent_id, []).append(score)
+                else:
+                    unattached_scores.append(score)
+            for draft in draft_solutions:
+                draft["score_solutions"] = scores_by_draft.pop(draft["id"], [])
+            for scores in scores_by_draft.values():
+                unattached_scores.extend(scores)
+            payload["draft_solutions"] = draft_solutions
+            payload["final_solutions"] = final_solutions
             payload["graded_solutions"] = payload["final_solutions"]
+            payload["unattached_scores"] = unattached_scores
             payload["solutions"] = payload["draft_solutions"] + payload["final_solutions"]
             items.append(payload)
 
@@ -944,6 +959,71 @@ class AppRepository:
             "draft_solutions": drafts,
             "final_solutions": finals,
             "solutions": drafts + finals,
+        }
+
+    def delete_solution(self, user_id: int, solution_id: str) -> Dict[str, Any]:
+        solution = self.get_solution(solution_id, user_id=user_id)
+        if not solution:
+            raise ValueError("Solution not found")
+
+        deleted_ids: List[str] = []
+        image_paths: List[str] = []
+        with get_connection() as conn:
+            with conn.cursor() as cursor:
+                if solution.get("solution_type") == "draft":
+                    cursor.execute(
+                        """
+                        SELECT id, image_path
+                        FROM solutions
+                        WHERE user_id = %s
+                          AND parent_solution_id = %s
+                          AND solution_type = 'graded'
+                        """,
+                        (user_id, solution_id),
+                    )
+                    child_rows = cursor.fetchall()
+                    deleted_ids.extend(row["id"] for row in child_rows)
+                    image_paths.extend(row["image_path"] for row in child_rows if row.get("image_path"))
+
+                    cursor.execute(
+                        """
+                        DELETE FROM solutions
+                        WHERE user_id = %s
+                          AND parent_solution_id = %s
+                          AND solution_type = 'graded'
+                        """,
+                        (user_id, solution_id),
+                    )
+                elif solution.get("solution_type") != "graded":
+                    raise ValueError("Only drafts and scores can be deleted")
+
+                cursor.execute(
+                    """
+                    SELECT image_path
+                    FROM solutions
+                    WHERE id = %s AND user_id = %s
+                    """,
+                    (solution_id, user_id),
+                )
+                own_row = cursor.fetchone()
+                if own_row and own_row.get("image_path"):
+                    image_paths.append(own_row["image_path"])
+
+                cursor.execute(
+                    """
+                    DELETE FROM solutions
+                    WHERE id = %s AND user_id = %s
+                    """,
+                    (solution_id, user_id),
+                )
+                if cursor.rowcount != 1:
+                    raise ValueError("Solution not found")
+                deleted_ids.append(solution_id)
+
+        return {
+            "deleted_ids": deleted_ids,
+            "image_paths": image_paths,
+            "deleted_solution_type": solution.get("solution_type"),
         }
 
     def get_solution(

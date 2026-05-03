@@ -4151,6 +4151,26 @@ def save_solution():
     return jsonify({"success": True, "solution": solution})
 
 
+@app.route('/api/solutions/<solution_id>', methods=['DELETE'])
+@login_required
+def delete_solution(solution_id):
+    try:
+        deleted = repo.delete_solution(request.user["id"], solution_id)
+        for image_path in deleted.get("image_paths", []):
+            try:
+                resolved = resolve_repo_path(image_path)
+                if resolved.exists() and SOLUTION_UPLOAD_DIR.resolve() in resolved.resolve().parents:
+                    resolved.unlink()
+            except Exception as exc:
+                print(f"Could not delete solution image {image_path}: {exc}")
+    except ValueError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 404
+    except DatabaseUnavailable as exc:
+        return db_error_response(exc)
+
+    return jsonify({"success": True, **deleted})
+
+
 @app.route('/api/solutions/<solution_id>/grade', methods=['POST'])
 @login_required
 def grade_saved_solution(solution_id):
