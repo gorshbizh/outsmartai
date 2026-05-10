@@ -42,6 +42,7 @@ CORS(app, supports_credentials=True)
 # Configuration
 LLM_PROVIDER = os.getenv('LLM_PROVIDER', 'mock')
 LLM_API_KEY = os.getenv('LLM_API_KEY')
+ENABLE_FORMALGEO = os.getenv("ENABLE_FORMALGEO", "False").lower() == "true"
 repo = AppRepository()
 
 # Unified data protocol models -------------------------------------------------
@@ -441,6 +442,11 @@ class FormalGeoVerifier:
     """H1-Geo using FormalGeo/FGPS APIs when available."""
 
     def __init__(self, llm_service: "LLMService"):
+        if not ENABLE_FORMALGEO:
+            self.formalizer = None
+            self.available = False
+            self.Interactor = None
+            return
         self.formalizer = GeometryFormalizerAgent(llm_service)
         try:
             from formalgeo.solver import Interactor  # type: ignore
@@ -461,7 +467,7 @@ class FormalGeoVerifier:
         givens: Optional[List[Claim]] = None,
         student_diagram_claims: Optional[List[Claim]] = None,
     ) -> Optional[Dict[str, Any]]:
-        if not self.available:
+        if not self.available or self.formalizer is None:
             return None
         result = await self.formalizer.run(
             text_description,
@@ -583,6 +589,13 @@ class MathVerifier:
     def __init__(self, llm_service: "LLMService"):
         self.geo = FormalGeoVerifier(llm_service)
         self.alg = AlgebraVerifier()
+        self._last_formalgeo_report = None
+
+        if not ENABLE_FORMALGEO:
+            self.step_grader = None
+            self.FormalGeoStepGrader = None
+            self.step_grading_available = False
+            return
         
         # Initialize FormalGeo step grader
         try:
@@ -1393,9 +1406,14 @@ class ClaimVerifier:
 
     def __init__(self, llm_service: "LLMService"):
         self.llm_service = llm_service
-        self.formalizer = GeometryFormalizerAgent(llm_service)
         self.solver = None
         self.available = False
+
+        if not ENABLE_FORMALGEO:
+            self.formalizer = None
+            self.Interactor = None
+            return
+        self.formalizer = GeometryFormalizerAgent(llm_service)
 
         try:
             from formalgeo.solver import Interactor
@@ -1443,10 +1461,16 @@ class ClaimVerifier:
 
         # Step 2: Build FormalGeo problem CDL
         text_cdl = self._claims_to_text_cdl(given_claims)
+        predicate_gdl = (
+            self.formalizer.predicate_gdl
+            if self.formalizer and self.formalizer.predicate_gdl
+            else {"Preset": {}, "Entity": {}, "Relation": {}, "Attribution": {}}
+        )
+        theorem_gdl = self.formalizer.theorem_gdl if self.formalizer and self.formalizer.theorem_gdl else {}
 
         gdl_payload = {
-            "predicate_GDL": self.formalizer.predicate_gdl or self.formalizer._default_predicate_gdl(),
-            "theorem_GDL": self.formalizer.theorem_gdl or {},
+            "predicate_GDL": predicate_gdl,
+            "theorem_GDL": theorem_gdl,
             "problem_CDL": {
                 "problem_id": 1,
                 "problem_level": 1,
@@ -2000,7 +2024,7 @@ class GradingPipeline:
         image_data: Optional[bytes],
         student_modified_drawing_description: Optional[str] = None,
         expected_score: Optional[int] = None,
-        use_formalgeo: bool = True,
+        use_formalgeo: bool = False,
     ) -> Dict[str, Any]:
         steps, symbol_map = await self.step_agent.run(text_description, drawing_description, image_data)
         claim_payload = await self.claim_agent.run(problem_id, steps, student_modified_drawing_description, image_data=image_data)
@@ -4248,7 +4272,7 @@ def delete_score_feedback(feedback_id):
 @login_required
 def grade_saved_solution(solution_id):
     data = request.get_json(silent=True) or {}
-    grading_mode = data.get("grading_mode", "formalgeo")
+    grading_mode = data.get("grading_mode", "simple_llm")
     if grading_mode not in {"formalgeo", "simple_llm", "llm_native"}:
         return jsonify({"success": False, "error": "grading_mode must be formalgeo, simple_llm, or llm_native"}), 400
 
@@ -4319,7 +4343,7 @@ def grade_saved_solution(solution_id):
 @login_required
 def grade_saved_solution_stream(solution_id):
     data = request.get_json(silent=True) or {}
-    grading_mode = data.get("grading_mode", "formalgeo")
+    grading_mode = data.get("grading_mode", "simple_llm")
     user_id = request.user["id"]
 
     if grading_mode not in {"formalgeo", "simple_llm", "llm_native"}:
@@ -4511,11 +4535,12 @@ def _handle_two_image_analysis(data: Dict[str, Any]):
     """Handle new two-image grading pipeline
 
     Supports two grading modes:
-    - 'formalgeo' (default): Uses FormalGeo for formal verification
+    - 'simple_llm' (default): Uses the simple two-image LLM grader
+    - 'formalgeo': accepted for backward compatibility and treated as 'simple_llm' unless ENABLE_FORMALGEO=True
     - 'llm_native': Uses pure LLM-based grading with tool-calling
     """
     problem_id = data.get('problem_id')
-    grading_mode = data.get('grading_mode', 'formalgeo')
+    grading_mode = data.get('grading_mode', 'simple_llm')
     max_points = data.get('max_points', 100)
 
     # Decode base64 images

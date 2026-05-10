@@ -65,6 +65,7 @@ Add MySQL settings to `.env` as needed:
 PORT=3000
 BACKEND_PORT=5055
 BACKEND_URL=http://localhost:5055
+ENABLE_FORMALGEO=False
 
 MYSQL_HOST=127.0.0.1
 MYSQL_PORT=3306

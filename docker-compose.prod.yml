@@ -30,6 +30,8 @@ services:
       MYSQL_PORT: 3306
       BACKEND_PORT: 5055
       BACKUP_DIR: /app/backend/backups/images
+      GUNICORN_WORKERS: 1
+      GUNICORN_THREADS: 4
     depends_on:
       mysql:
         condition: service_healthy
