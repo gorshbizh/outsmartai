@@ -1,0 +1,17 @@
+.git
+.gitignore
+.env
+.env.*
+node_modules
+dist
+backend/.venv
+backend/__pycache__
+backend/.pytest_cache
+backend/uploads
+backend/backups
+backend/tests/fixtures/last_response.json
+*.pyc
+*.pyo
+*.pyd
+*.log
+.DS_Store

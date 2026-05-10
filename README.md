@@ -356,6 +356,17 @@ For production deployment to Google Cloud Platform:
 2. Set environment variables in Cloud Console
 3. Deploy with `gcloud app deploy`
 
+For the current single-machine dev-stage deployment, use Docker on one Compute Engine VM instead. The repo now includes:
+
+- `Dockerfile.frontend`
+- `Dockerfile.backend`
+- `docker-compose.prod.yml`
+- `deploy-gcp-vm.sh`
+- `.env.gcp.example`
+- `docs/GCP_FREE_VM_DEPLOY.md`
+
+That path keeps the whole stack on one VM with three containers: frontend, backend, and MySQL.
+
 ## Cloud Migration Notes
 
 The local Docker MySQL setup uses the same environment variables that a public deployment should use. To move toward GCP or AWS:
