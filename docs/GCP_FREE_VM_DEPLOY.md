@@ -104,6 +104,8 @@ Edit `.env` and set:
 - `MYSQL_ROOT_PASSWORD`
 - `ADMIN_PASSWORD`
 
+Do not leave placeholder values like `replace_with_mysql_password` in the file. Pick real values before the first deploy.
+
 Keep these values as-is for the one-machine Docker deployment:
 
 ```env
@@ -111,10 +113,38 @@ MYSQL_HOST=mysql
 MYSQL_PORT=3306
 BACKEND_URL=http://backend:5055
 DB_AUTO_INIT=True
-DB_AUTO_SEED=False
+ENABLE_FORMALGEO=False
 ```
 
-## 7. Start the stack
+## 7. Bootstrap MySQL for the first time
+
+For the first successful login on the VM, use the bootstrap script. It will:
+
+- force `DB_AUTO_SEED=True` in `.env`
+- reset the Docker MySQL volume
+- start the three-container stack cleanly
+
+This is intentionally destructive to the Docker MySQL volume. Use it for first-time setup or when you want a clean database reset.
+
+Run:
+
+```bash
+./scripts/bootstrap-vm-mysql.sh
+```
+
+After it finishes, log in to the app using the `ADMIN_USERNAME` and `ADMIN_PASSWORD` values from `.env`.
+
+## 8. Switch to regular mode
+
+After the first successful login, disable reseeding so the VM keeps its current MySQL data on restart:
+
+```bash
+./scripts/set-vm-regular-mode.sh
+```
+
+This updates `.env` to `DB_AUTO_SEED=False` and restarts the backend.
+
+## 9. Start or update the stack later
 
 From the repo root on the VM:
 
@@ -136,7 +166,7 @@ If you also want recent logs after deployment:
 ./deploy-gcp-vm.sh --logs
 ```
 
-## 8. Verify the deployment
+## 10. Verify the deployment
 
 Check service health:
 
@@ -160,7 +190,7 @@ gcloud compute instances describe outsmartai-dev \
   --format='get(networkInterfaces[0].accessConfigs[0].natIP)'
 ```
 
-## 9. Update the app later
+## 11. Update the app later
 
 After new commits are on the VM:
 
@@ -168,7 +198,7 @@ After new commits are on the VM:
 ./deploy-gcp-vm.sh
 ```
 
-## 10. Useful operations
+## 12. Useful operations
 
 Stop the stack:
 
@@ -201,4 +231,6 @@ docker compose -f docker-compose.prod.yml down -v
 - MySQL is not exposed on the VM, which is what we want for this single-machine setup.
 - Backend uploads and image backups are stored in named Docker volumes.
 - `deploy-gcp-vm.sh` is the normal redeploy command to use on the VM.
+- `scripts/bootstrap-vm-mysql.sh` is the first-time MySQL/bootstrap flow for the VM.
+- `scripts/set-vm-regular-mode.sh` is the follow-up step after the first successful login.
 - This is a good dev-stage deployment. For a real production environment, move MySQL to a managed service and add HTTPS plus secret management.

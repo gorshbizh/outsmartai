@@ -81,6 +81,21 @@ ADMIN_DISPLAY_NAME="Admin User"
 ADMIN_EMAIL=
 ```
 
+For a fresh environment, the first successful MySQL/bootstrap run should use:
+
+```env
+DB_AUTO_INIT=True
+DB_AUTO_SEED=True
+```
+
+That creates the schema and inserts the seeded admin user plus demo problem data. After the first successful login, switch to regular mode:
+
+```env
+DB_AUTO_SEED=False
+```
+
+That keeps the existing MySQL data and avoids reseeding on every backend restart.
+
 The backend defaults to port `5055` because macOS AirPlay Receiver often occupies port `5000` and returns `403 Forbidden` responses. If login shows `Request failed with 403`, make sure the frontend `BACKEND_URL` is not pointing at `http://localhost:5000`.
 
 ### 3. Start MySQL Locally
@@ -153,6 +168,11 @@ seeded={'problems': 18, 'solutions': 34}
 ```
 
 The seeded admin account owns the test-data draft solutions. New users see all problems, but only their own draft and final history.
+
+For the GCP single-VM deployment, the repo also includes:
+
+- `scripts/bootstrap-vm-mysql.sh`: resets the Docker MySQL volume, enables seeding, and bootstraps the VM for first-time login
+- `scripts/set-vm-regular-mode.sh`: flips `.env` back to `DB_AUTO_SEED=False` and restarts the backend
 
 ### 5. Start the Servers
 
