@@ -158,13 +158,21 @@ if (logoutBtn) {
 }
 
 /* Utilities */
+function getCanvasViewportSize() {
+  const rect = container.getBoundingClientRect();
+  return {
+    width: Math.max(1, Math.floor(rect.width) || 800),
+    height: Math.max(1, Math.floor(rect.height) || 600),
+  };
+}
+
 function setCanvasSize(force = false) {
   // Set fixed dimensions only once at page load
   if (force || fixedCanvasWidth === 0 || fixedCanvasHeight === 0) {
-    const rect = container.getBoundingClientRect();
     if (!paperImage) {
-      fixedCanvasWidth = Math.max(800, Math.floor(rect.width)); // Minimum 800px width
-      fixedCanvasHeight = Math.max(600, Math.floor(rect.height)); // Minimum 600px height
+      const viewportSize = getCanvasViewportSize();
+      fixedCanvasWidth = viewportSize.width;
+      fixedCanvasHeight = viewportSize.height;
     }
   }
   
@@ -189,7 +197,7 @@ function getPos(evt) {
   const rect = canvas.getBoundingClientRect();
   let x, y, p = 0.5;
 
-  if (evt instanceof PointerEvent) {
+  if (typeof PointerEvent !== 'undefined' && evt instanceof PointerEvent) {
     x = evt.clientX - rect.left;
     y = evt.clientY - rect.top;
     p = evt.pressure && evt.pressure > 0 ? evt.pressure : (evt.pointerType === 'mouse' ? 0.5 : 0.5);
@@ -202,6 +210,12 @@ function getPos(evt) {
   }
 
   return { x, y, p };
+}
+
+function preventCanvasGesture(evt) {
+  if (evt.cancelable) {
+    evt.preventDefault();
+  }
 }
 
 function lerp(a, b, t) { return a + (b - a) * t; }
@@ -297,8 +311,13 @@ function startStroke(evt) {
   if (isTextToolActive && isTextToolActive()) {
     return;
   }
-  evt.preventDefault();
-  canvas.setPointerCapture(evt.pointerId);
+  if (typeof evt.button === 'number' && evt.button !== 0) {
+    return;
+  }
+  preventCanvasGesture(evt);
+  try {
+    canvas.setPointerCapture(evt.pointerId);
+  } catch {}
   isDrawing = true;
   redoStack.length = 0; // invalidate redo on new action
 
@@ -315,6 +334,7 @@ function startStroke(evt) {
 
 function extendStroke(evt) {
   if (!isDrawing || !currentStroke) return;
+  preventCanvasGesture(evt);
   const { x, y, p } = getPos(evt);
 
   // Previous point in the current stroke
@@ -355,6 +375,7 @@ function extendStroke(evt) {
 
 function endStroke(evt) {
   if (!isDrawing) return;
+  preventCanvasGesture(evt);
   isDrawing = false;
   try {
     canvas.releasePointerCapture(evt.pointerId);
@@ -1091,7 +1112,11 @@ function loadPaperImage(imageUrl) {
     img.onload = () => {
       paperImage = img;
       paperImageSource = imageUrl;
-      const scale = Math.max(1, 800 / img.naturalWidth, 600 / img.naturalHeight);
+      const viewportSize = getCanvasViewportSize();
+      const scale = Math.min(
+        viewportSize.width / img.naturalWidth,
+        viewportSize.height / img.naturalHeight
+      ) || 1;
       fixedCanvasWidth = Math.round(img.naturalWidth * scale);
       fixedCanvasHeight = Math.round(img.naturalHeight * scale);
       setCanvasSize(true);
@@ -1104,6 +1129,12 @@ function loadPaperImage(imageUrl) {
 
 function restoreCanvasData(canvasData) {
   if (!canvasData) return;
+  const sourceWidth = Number(canvasData.canvas_width) || fixedCanvasWidth || 1;
+  const sourceHeight = Number(canvasData.canvas_height) || fixedCanvasHeight || 1;
+  const scaleX = fixedCanvasWidth / sourceWidth;
+  const scaleY = fixedCanvasHeight / sourceHeight;
+  const scaleStrokeSize = Math.max(0.1, (scaleX + scaleY) / 2);
+
   history.length = 0;
   redoStack.length = 0;
   clearTextBoxes();
@@ -1113,19 +1144,34 @@ function restoreCanvasData(canvasData) {
     canvas.style.backgroundColor = bgColor;
   }
   if (Array.isArray(canvasData.strokes)) {
-    canvasData.strokes.forEach(stroke => history.push(stroke));
+    canvasData.strokes.forEach(stroke => {
+      history.push({
+        ...stroke,
+        size: Number(stroke.size) ? Number(stroke.size) * scaleStrokeSize : stroke.size,
+        points: Array.isArray(stroke.points)
+          ? stroke.points.map(point => ({
+              x: Number(point.x || 0) * scaleX,
+              y: Number(point.y || 0) * scaleY,
+              p: point.p,
+            }))
+          : [],
+      });
+    });
   }
   fullRedraw();
   if (Array.isArray(canvasData.text_boxes)) {
     canvasData.text_boxes.forEach(snapshot => {
-      const box = createTextBox(Number(snapshot.x) || 10, Number(snapshot.y) || 10, {
+      const x = Number(snapshot.x || 10) * scaleX;
+      const y = Number(snapshot.y || 10) * scaleY;
+      const fontSizePx = Number(snapshot.font_size_px);
+      const box = createTextBox(x, y, {
         value: snapshot.value || '',
         color: snapshot.color || colorInput.value,
-        fontSizePx: Number(snapshot.font_size_px) || undefined,
+        fontSizePx: fontSizePx ? fontSizePx * scaleStrokeSize : undefined,
       });
       if (box) {
-        box.element.style.left = `${Number(snapshot.x) || 10}px`;
-        box.element.style.top = `${Number(snapshot.y) || 10}px`;
+        box.element.style.left = `${x}px`;
+        box.element.style.top = `${y}px`;
         box.z = Number(snapshot.z) || box.z;
         box.element.style.zIndex = String(box.z);
         autoSizeTextBox(box);
@@ -1916,13 +1962,14 @@ window.addEventListener('keydown', (e) => {
 });
 
 /* Pointer events */
-canvas.addEventListener('pointerdown', startStroke);
-canvas.addEventListener('pointermove', extendStroke);
+const canvasPointerOptions = { passive: false };
+canvas.addEventListener('pointerdown', startStroke, canvasPointerOptions);
+canvas.addEventListener('pointermove', extendStroke, canvasPointerOptions);
 // High-frequency updates for supported devices (e.g., pens)
-canvas.addEventListener('pointerrawupdate', extendStroke);
-canvas.addEventListener('pointerup', endStroke);
-canvas.addEventListener('pointercancel', endStroke);
-canvas.addEventListener('pointerleave', endStroke);
+canvas.addEventListener('pointerrawupdate', extendStroke, canvasPointerOptions);
+canvas.addEventListener('pointerup', endStroke, canvasPointerOptions);
+canvas.addEventListener('pointercancel', endStroke, canvasPointerOptions);
+canvas.addEventListener('pointerleave', endStroke, canvasPointerOptions);
 
 /* Resize handling removed - canvas now uses fixed dimensions */
 

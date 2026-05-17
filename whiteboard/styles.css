@@ -138,11 +138,15 @@ main {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
-  overflow: auto; /* Allow scrolling when canvas is larger than container */
+  overflow: hidden;
+  overscroll-behavior: contain;
   position: relative;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
-/* Canvas has fixed dimensions set in JS; allows scrolling when needed */
+/* Canvas has fixed dimensions set in JS and is locked against mobile panning. */
 #board {
   display: block;
   background:
@@ -150,6 +154,10 @@ main {
     linear-gradient(90deg, rgba(24,35,34,0.06) 1px, transparent 1px) 0 0/24px 24px,
     linear-gradient(transparent, transparent);
   /* Width and height will be set by JavaScript to fixed values */
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-user-drag: none;
 }
 
 .text-entry {
@@ -178,6 +186,9 @@ main {
 .text-entry--interactive {
   pointer-events: auto;
   cursor: text;
+  touch-action: manipulation;
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 .text-entry--readonly {
