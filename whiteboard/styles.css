@@ -29,6 +29,13 @@ body {
   line-height: 1.4;
 }
 
+body.whiteboard-page {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  height: 100dvh;
+  overflow: hidden;
+}
+
 .app-header {
   position: sticky;
   top: 0;
@@ -131,6 +138,11 @@ main {
   padding: 12px 16px 16px;
 }
 
+body.whiteboard-page main {
+  height: auto;
+  min-height: 0;
+}
+
 #board-container {
   height: 100%;
   width: 100%;
@@ -146,7 +158,17 @@ main {
   -webkit-user-select: none;
 }
 
-/* Canvas has fixed dimensions set in JS and is locked against mobile panning. */
+#board-surface {
+  left: 0;
+  position: absolute;
+  touch-action: none;
+  top: 0;
+  transform-origin: top left;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Canvas has logical dimensions set in JS; the surface scales to the device. */
 #board {
   display: block;
   background:
@@ -223,14 +245,30 @@ main {
 /* Small screens */
 @media (max-width: 640px) {
   .toolbar {
-    gap: 10px;
+    flex-wrap: nowrap;
+    gap: 8px;
+    overflow-x: auto;
+    padding: 8px;
+    scrollbar-width: thin;
+    -webkit-overflow-scrolling: touch;
+  }
+  .tool-group {
+    flex: 0 0 auto;
+    gap: 8px;
+    padding: 7px 8px;
+  }
+  .tool-group label,
+  button {
+    font-size: 13px;
   }
   #size {
-    width: 120px;
+    width: 96px;
   }
   main {
     padding: 8px;
-    height: calc(100dvh - 150px);
+  }
+  .app-footer {
+    display: none;
   }
 }
 
@@ -1081,6 +1119,19 @@ main {
     align-items: stretch;
     flex-direction: column;
     display: flex;
+  }
+
+  .whiteboard-page .whiteboard-context-bar {
+    gap: 8px;
+    padding: 8px;
+  }
+
+  .whiteboard-page .whiteboard-context-copy h1 {
+    font-size: 16px;
+  }
+
+  .whiteboard-page .whiteboard-context-copy p {
+    font-size: 12px;
   }
 
   .shell-nav {

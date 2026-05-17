@@ -6,7 +6,7 @@
   <title>OutSmartAI Whiteboard</title>
   <link rel="stylesheet" href="styles.css">
 </head>
-<body>
+<body class="whiteboard-page">
   <header class="app-header">
     <div class="whiteboard-context-bar">
       <a href="/progress.html" class="nav-link">Progress</a>
@@ -69,7 +69,9 @@
 
   <main>
     <div id="board-container">
-      <canvas id="board" aria-label="Drawing canvas"></canvas>
+      <div id="board-surface">
+        <canvas id="board" aria-label="Drawing canvas"></canvas>
+      </div>
     </div>
   </main>
 

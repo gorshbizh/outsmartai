@@ -15,6 +15,7 @@
 /* Elements */
 const canvas = document.getElementById('board');
 const container = document.getElementById('board-container');
+const boardSurface = document.getElementById('board-surface');
 const colorInput = document.getElementById('color');
 const sizeInput = document.getElementById('size');
 const sizeVal = document.getElementById('sizeVal');
@@ -106,6 +107,7 @@ let activeScoreSolution = null;
 let pendingScoreFeedbackRating = null;
 let scoreInteractionLog = [];
 let requestedFeedbackId = null;
+let boardDisplayScale = 1;
 
 // Fixed canvas dimensions (set once at page load)
 let fixedCanvasWidth = 0;
@@ -166,6 +168,31 @@ function getCanvasViewportSize() {
   };
 }
 
+function getAdaptivePaperSize(img) {
+  const maxLongEdge = 1600;
+  const longEdge = Math.max(img.naturalWidth, img.naturalHeight);
+  const scale = longEdge > maxLongEdge ? maxLongEdge / longEdge : 1;
+  return {
+    width: Math.max(1, Math.round(img.naturalWidth * scale)),
+    height: Math.max(1, Math.round(img.naturalHeight * scale)),
+  };
+}
+
+function updateBoardSurfaceScale() {
+  if (!fixedCanvasWidth || !fixedCanvasHeight || !boardSurface) return;
+  const viewportSize = getCanvasViewportSize();
+  boardDisplayScale = Math.min(
+    viewportSize.width / fixedCanvasWidth,
+    viewportSize.height / fixedCanvasHeight
+  ) || 1;
+
+  const displayWidth = fixedCanvasWidth * boardDisplayScale;
+  const displayHeight = fixedCanvasHeight * boardDisplayScale;
+  boardSurface.style.width = `${fixedCanvasWidth}px`;
+  boardSurface.style.height = `${fixedCanvasHeight}px`;
+  boardSurface.style.transform = `translate(${Math.max(0, (viewportSize.width - displayWidth) / 2)}px, ${Math.max(0, (viewportSize.height - displayHeight) / 2)}px) scale(${boardDisplayScale})`;
+}
+
 function setCanvasSize(force = false) {
   // Set fixed dimensions only once at page load
   if (force || fixedCanvasWidth === 0 || fixedCanvasHeight === 0) {
@@ -183,6 +210,7 @@ function setCanvasSize(force = false) {
   canvas.height = Math.floor(fixedCanvasHeight * dpr);
   canvas.style.width = fixedCanvasWidth + 'px';
   canvas.style.height = fixedCanvasHeight + 'px';
+  updateBoardSurfaceScale();
 
   ctx.setTransform(1, 0, 0, 1, 0, 0); // reset
   ctx.scale(dpr, dpr);
@@ -198,12 +226,12 @@ function getPos(evt) {
   let x, y, p = 0.5;
 
   if (typeof PointerEvent !== 'undefined' && evt instanceof PointerEvent) {
-    x = evt.clientX - rect.left;
-    y = evt.clientY - rect.top;
+    x = (evt.clientX - rect.left) * (fixedCanvasWidth / rect.width);
+    y = (evt.clientY - rect.top) * (fixedCanvasHeight / rect.height);
     p = evt.pressure && evt.pressure > 0 ? evt.pressure : (evt.pointerType === 'mouse' ? 0.5 : 0.5);
   } else if (evt.touches && evt.touches[0]) {
-    x = evt.touches[0].clientX - rect.left;
-    y = evt.touches[0].clientY - rect.top;
+    x = (evt.touches[0].clientX - rect.left) * (fixedCanvasWidth / rect.width);
+    y = (evt.touches[0].clientY - rect.top) * (fixedCanvasHeight / rect.height);
     p = 0.5;
   } else {
     x = 0; y = 0; p = 0.5;
@@ -483,13 +511,13 @@ function bringTextBoxToFront(box) {
 }
 
 function updateTextBoxBounds(box) {
-  const rect = box.element.getBoundingClientRect();
-  const containerRect = container.getBoundingClientRect();
+  const left = parseFloat(box.element.style.left) || 0;
+  const top = parseFloat(box.element.style.top) || 0;
   box.bounds = {
-    left: rect.left - containerRect.left,
-    top: rect.top - containerRect.top,
-    right: rect.right - containerRect.left,
-    bottom: rect.bottom - containerRect.top,
+    left,
+    top,
+    right: left + box.element.offsetWidth,
+    bottom: top + box.element.offsetHeight,
   };
 }
 
@@ -755,7 +783,7 @@ function createTextBox(x, y, options = {}) {
     bringTextBoxToFront(box);
   });
 
-  container.appendChild(textarea);
+  boardSurface.appendChild(textarea);
   textBoxes.push(box);
   bringTextBoxToFront(box);
   updateTextBoxInteractivity();
@@ -894,16 +922,14 @@ function resolveLineHeight(value, fontSizePx) {
 
 function renderTextBoxesToContext(targetCtx) {
   if (!textBoxes.length) return;
-  const containerRect = container.getBoundingClientRect();
   targetCtx.save();
   targetCtx.scale(dpr, dpr);
   textBoxes.forEach(box => {
     const el = box.element;
     if (!el) return;
     const style = window.getComputedStyle(el);
-    const rect = el.getBoundingClientRect();
-    const x = rect.left - containerRect.left;
-    const y = rect.top - containerRect.top;
+    const x = parseFloat(el.style.left) || 0;
+    const y = parseFloat(el.style.top) || 0;
     const paddingLeft = parseFloat(style.paddingLeft) || 0;
     const paddingTop = parseFloat(style.paddingTop) || 0;
     const font = style.font || `${style.fontStyle || 'normal'} ${style.fontWeight || '400'} ${style.fontSize || '16px'} ${style.fontFamily || 'sans-serif'}`;
@@ -933,16 +959,14 @@ function exportBoardDataUrl() {
 }
 
 function serializeTextBoxes() {
-  const containerRect = container.getBoundingClientRect();
   return textBoxes.map(box => {
     const el = box.element;
-    const rect = el.getBoundingClientRect();
     const style = window.getComputedStyle(el);
     return {
       id: box.id,
       value: el.value,
-      x: rect.left - containerRect.left,
-      y: rect.top - containerRect.top,
+      x: parseFloat(el.style.left) || 0,
+      y: parseFloat(el.style.top) || 0,
       color: style.color || '#000000',
       font_size_px: parseFloat(style.fontSize) || 16,
       z: box.z,
@@ -1124,13 +1148,9 @@ function loadPaperImage(imageUrl) {
     img.onload = () => {
       paperImage = img;
       paperImageSource = imageUrl;
-      const viewportSize = getCanvasViewportSize();
-      const scale = Math.min(
-        viewportSize.width / img.naturalWidth,
-        viewportSize.height / img.naturalHeight
-      ) || 1;
-      fixedCanvasWidth = Math.round(img.naturalWidth * scale);
-      fixedCanvasHeight = Math.round(img.naturalHeight * scale);
+      const paperSize = getAdaptivePaperSize(img);
+      fixedCanvasWidth = paperSize.width;
+      fixedCanvasHeight = paperSize.height;
       setCanvasSize(true);
       resolve();
     };
@@ -1983,7 +2003,14 @@ canvas.addEventListener('pointerup', endStroke, canvasPointerOptions);
 canvas.addEventListener('pointercancel', endStroke, canvasPointerOptions);
 canvas.addEventListener('pointerleave', endStroke, canvasPointerOptions);
 
-/* Resize handling removed - canvas now uses fixed dimensions */
+/* Keep the same drawing coordinates while fitting the visible board to the device. */
+if (window.ResizeObserver) {
+  const boardResizeObserver = new ResizeObserver(() => updateBoardSurfaceScale());
+  boardResizeObserver.observe(container);
+} else {
+  window.addEventListener('resize', updateBoardSurfaceScale);
+  window.addEventListener('orientationchange', updateBoardSurfaceScale);
+}
 
 /* Initial setup */
 setCanvasSize();
