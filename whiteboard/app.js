@@ -16,6 +16,10 @@
 const canvas = document.getElementById('board');
 const container = document.getElementById('board-container');
 const boardSurface = document.getElementById('board-surface');
+const floatingToolbar = document.getElementById('floating-toolbar');
+const toolbarDragHandle = document.getElementById('toolbar-drag-handle');
+const toolbarCollapseBtn = document.getElementById('toolbar-collapse');
+const toolbarContent = document.getElementById('toolbar-content');
 const colorInput = document.getElementById('color');
 const sizeInput = document.getElementById('size');
 const sizeVal = document.getElementById('sizeVal');
@@ -256,6 +260,111 @@ function replaceBrowserUrl(url) {
   } catch (error) {
     console.warn('Draft saved, but the browser URL could not be updated.', error);
   }
+}
+
+function clampToolbarPosition(left, top) {
+  if (!floatingToolbar) return { left, top };
+  const rect = floatingToolbar.getBoundingClientRect();
+  const margin = 8;
+  const maxLeft = Math.max(margin, window.innerWidth - rect.width - margin);
+  const maxTop = Math.max(margin, window.innerHeight - rect.height - margin);
+  return {
+    left: Math.min(Math.max(margin, left), maxLeft),
+    top: Math.min(Math.max(margin, top), maxTop),
+  };
+}
+
+function setToolbarPosition(left, top, persist = false) {
+  if (!floatingToolbar) return;
+  const next = clampToolbarPosition(left, top);
+  floatingToolbar.style.left = `${next.left}px`;
+  floatingToolbar.style.top = `${next.top}px`;
+  floatingToolbar.style.right = 'auto';
+  floatingToolbar.style.bottom = 'auto';
+  if (persist) {
+    localStorage.setItem('whiteboardToolbarPosition', JSON.stringify(next));
+  }
+}
+
+function setToolbarCollapsed(collapsed, persist = false) {
+  if (!floatingToolbar || !toolbarCollapseBtn || !toolbarContent) return;
+  floatingToolbar.classList.toggle('is-collapsed', collapsed);
+  toolbarCollapseBtn.textContent = collapsed ? 'Show' : 'Hide';
+  toolbarCollapseBtn.setAttribute('aria-expanded', String(!collapsed));
+  toolbarContent.setAttribute('aria-hidden', String(collapsed));
+  if (persist) {
+    localStorage.setItem('whiteboardToolbarCollapsed', collapsed ? 'true' : 'false');
+  }
+  window.requestAnimationFrame(() => {
+    const rect = floatingToolbar.getBoundingClientRect();
+    setToolbarPosition(rect.left, rect.top);
+  });
+}
+
+function setupFloatingToolbar() {
+  if (!floatingToolbar || !toolbarDragHandle || !toolbarCollapseBtn) return;
+
+  const storedCollapsed = localStorage.getItem('whiteboardToolbarCollapsed');
+  const defaultCollapsed = window.matchMedia('(max-width: 640px)').matches;
+  setToolbarCollapsed(storedCollapsed === null ? defaultCollapsed : storedCollapsed === 'true');
+
+  const storedPosition = localStorage.getItem('whiteboardToolbarPosition');
+  if (storedPosition) {
+    try {
+      const position = JSON.parse(storedPosition);
+      window.requestAnimationFrame(() => setToolbarPosition(Number(position.left) || 16, Number(position.top) || 86));
+    } catch {
+      localStorage.removeItem('whiteboardToolbarPosition');
+    }
+  }
+
+  toolbarCollapseBtn.addEventListener('click', () => {
+    setToolbarCollapsed(!floatingToolbar.classList.contains('is-collapsed'), true);
+  });
+
+  let isDraggingToolbar = false;
+  let dragOffsetX = 0;
+  let dragOffsetY = 0;
+
+  toolbarDragHandle.addEventListener('pointerdown', (event) => {
+    if (typeof event.button === 'number' && event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const rect = floatingToolbar.getBoundingClientRect();
+    isDraggingToolbar = true;
+    dragOffsetX = event.clientX - rect.left;
+    dragOffsetY = event.clientY - rect.top;
+    try {
+      toolbarDragHandle.setPointerCapture(event.pointerId);
+    } catch {}
+  });
+
+  toolbarDragHandle.addEventListener('pointermove', (event) => {
+    if (!isDraggingToolbar) return;
+    event.preventDefault();
+    setToolbarPosition(event.clientX - dragOffsetX, event.clientY - dragOffsetY);
+  });
+
+  const finishToolbarDrag = (event) => {
+    if (!isDraggingToolbar) return;
+    isDraggingToolbar = false;
+    try {
+      toolbarDragHandle.releasePointerCapture(event.pointerId);
+    } catch {}
+    const rect = floatingToolbar.getBoundingClientRect();
+    setToolbarPosition(rect.left, rect.top, true);
+  };
+
+  toolbarDragHandle.addEventListener('pointerup', finishToolbarDrag);
+  toolbarDragHandle.addEventListener('pointercancel', finishToolbarDrag);
+
+  const clampCurrentPosition = () => {
+    if (!floatingToolbar.style.left || !floatingToolbar.style.top) return;
+    const rect = floatingToolbar.getBoundingClientRect();
+    setToolbarPosition(rect.left, rect.top, true);
+  };
+  window.addEventListener('resize', clampCurrentPosition);
+  window.addEventListener('orientationchange', clampCurrentPosition);
 }
 
 function lerp(a, b, t) { return a + (b - a) * t; }
@@ -2013,6 +2122,7 @@ if (window.ResizeObserver) {
 }
 
 /* Initial setup */
+setupFloatingToolbar();
 setCanvasSize();
 updateButtonsState();
 updateTextBoxInteractivity();

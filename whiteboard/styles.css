@@ -37,9 +37,9 @@ body.whiteboard-page {
 }
 
 .app-header {
-  position: sticky;
+  position: relative;
   top: 0;
-  z-index: 10;
+  z-index: 20;
   background: rgba(255,255,255,0.92);
   backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--border);
@@ -60,6 +60,84 @@ body.whiteboard-page {
   gap: 10px 14px;
   align-items: center;
   padding: 10px 16px 14px;
+}
+
+.floating-toolbar {
+  align-items: stretch;
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid rgba(215, 223, 218, 0.92);
+  border-radius: 8px;
+  box-shadow: 0 14px 34px rgba(24, 35, 34, 0.18);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  left: 16px;
+  max-height: min(62dvh, 420px);
+  max-width: min(720px, calc(100vw - 24px));
+  padding: 8px;
+  position: fixed;
+  top: 86px;
+  touch-action: auto;
+  width: max-content;
+  z-index: 40;
+}
+
+.toolbar-panel-header {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.toolbar-drag-handle,
+.toolbar-collapse {
+  border-color: #d7dfda;
+  background: #ffffff;
+  color: var(--text);
+  box-shadow: none;
+}
+
+.toolbar-drag-handle {
+  cursor: grab;
+  flex: 1 1 auto;
+  font-weight: 700;
+  min-width: 76px;
+  text-align: left;
+  touch-action: none;
+}
+
+.toolbar-drag-handle:active {
+  cursor: grabbing;
+}
+
+.toolbar-collapse {
+  flex: 0 0 auto;
+  padding-inline: 10px;
+}
+
+.toolbar-content {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-height: calc(min(62dvh, 420px) - 48px);
+  min-width: min(480px, calc(100vw - 48px));
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 1px;
+  touch-action: pan-x pan-y;
+}
+
+.floating-toolbar.is-collapsed {
+  width: auto;
+}
+
+.floating-toolbar.is-collapsed .toolbar-content {
+  display: none;
+}
+
+.floating-toolbar.is-collapsed .toolbar-panel-header {
+  min-width: 112px;
 }
 
 .tool-group {
@@ -244,16 +322,23 @@ body.whiteboard-page main {
 
 /* Small screens */
 @media (max-width: 640px) {
-  .toolbar {
-    flex-wrap: nowrap;
-    gap: 8px;
-    overflow-x: auto;
-    padding: 8px;
-    scrollbar-width: thin;
-    -webkit-overflow-scrolling: touch;
+  .floating-toolbar {
+    left: auto;
+    max-height: min(56dvh, 360px);
+    max-width: calc(100vw - 16px);
+    right: 8px;
+    top: auto;
+    bottom: 10px;
+  }
+  .toolbar-content {
+    display: grid;
+    grid-template-columns: 1fr;
+    max-height: calc(min(56dvh, 360px) - 48px);
+    min-width: min(280px, calc(100vw - 40px));
+    overflow-y: auto;
   }
   .tool-group {
-    flex: 0 0 auto;
+    justify-content: space-between;
     gap: 8px;
     padding: 7px 8px;
   }
