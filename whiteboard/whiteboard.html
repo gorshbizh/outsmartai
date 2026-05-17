@@ -8,14 +8,6 @@
 </head>
 <body class="whiteboard-page">
   <header class="app-header">
-    <div class="whiteboard-context-bar">
-      <a href="/progress.html" class="nav-link">Progress</a>
-      <div class="whiteboard-context-copy">
-        <h1 id="context-title">Whiteboard</h1>
-        <p id="context-subtitle">Loading problem context...</p>
-      </div>
-      <button id="logoutBtn" class="button-secondary" type="button">Logout</button>
-    </div>
     <section id="problem-reference" class="problem-reference hidden" aria-label="Problem context">
       <div class="reference-panel">
         <h2>Problem</h2>
@@ -29,9 +21,14 @@
     <nav id="floating-toolbar" class="toolbar floating-toolbar" aria-label="Drawing toolbar">
       <div class="toolbar-panel-header">
         <button id="toolbar-drag-handle" class="toolbar-drag-handle" type="button" aria-label="Move drawing tools">Tools</button>
+        <a href="/progress.html" class="toolbar-progress-link">Progress</a>
         <button id="toolbar-collapse" class="toolbar-collapse" type="button" aria-expanded="true" aria-controls="toolbar-content">Hide</button>
       </div>
       <div id="toolbar-content" class="toolbar-content">
+        <div class="toolbar-context-copy">
+          <h1 id="context-title">Whiteboard</h1>
+        </div>
+
         <div class="tool-group">
           <label>
             <input type="radio" name="tool" value="pen" id="tool-pen" checked>

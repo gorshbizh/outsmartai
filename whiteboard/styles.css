@@ -31,9 +31,20 @@ body {
 
 body.whiteboard-page {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: 0 minmax(0, 1fr) auto;
   height: 100dvh;
   overflow: hidden;
+}
+
+body.whiteboard-page .app-header {
+  background: transparent;
+  border: 0;
+  backdrop-filter: none;
+  height: 0;
+}
+
+body.whiteboard-page .app-footer {
+  display: none;
 }
 
 .app-header {
@@ -76,7 +87,7 @@ body.whiteboard-page {
   max-width: min(720px, calc(100vw - 24px));
   padding: 8px;
   position: fixed;
-  top: 86px;
+  top: 16px;
   touch-action: auto;
   width: max-content;
   z-index: 40;
@@ -91,7 +102,8 @@ body.whiteboard-page {
 }
 
 .toolbar-drag-handle,
-.toolbar-collapse {
+.toolbar-collapse,
+.toolbar-progress-link {
   border-color: #d7dfda;
   background: #ffffff;
   color: var(--text);
@@ -116,6 +128,23 @@ body.whiteboard-page {
   padding-inline: 10px;
 }
 
+.toolbar-progress-link {
+  align-items: center;
+  border: 1px solid #d7dfda;
+  border-radius: var(--radius);
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-size: 14px;
+  justify-content: center;
+  min-height: 36px;
+  padding: 8px 10px;
+  text-decoration: none;
+}
+
+.toolbar-progress-link:hover {
+  background: #f7fbfa;
+}
+
 .toolbar-content {
   display: flex;
   flex-wrap: wrap;
@@ -126,6 +155,29 @@ body.whiteboard-page {
   overscroll-behavior: contain;
   padding: 1px;
   touch-action: pan-x pan-y;
+}
+
+.toolbar-context-copy {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  flex: 1 1 220px;
+  min-width: min(280px, 100%);
+  padding: 8px 10px;
+}
+
+.toolbar-context-copy h1 {
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.2;
+  margin: 0;
+  padding: 0;
+}
+
+.toolbar-context-copy p {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.25;
+  margin: 3px 0 0;
 }
 
 .floating-toolbar.is-collapsed {
@@ -343,7 +395,8 @@ body.whiteboard-page main {
     padding: 7px 8px;
   }
   .tool-group label,
-  button {
+  button,
+  .toolbar-progress-link {
     font-size: 13px;
   }
   #size {

@@ -35,7 +35,6 @@ const bgColorInput = document.getElementById('bgColor');
 const ossLink = document.getElementById('ossLink');
 const logoutBtn = document.getElementById('logoutBtn');
 const contextTitle = document.getElementById('context-title');
-const contextSubtitle = document.getElementById('context-subtitle');
 const problemReference = document.getElementById('problem-reference');
 const problemImage = document.getElementById('problem-image');
 const solutionReferencePanel = document.getElementById('solution-reference-panel');
@@ -1105,27 +1104,6 @@ function isFinalSolution(solution = currentSolution) {
   return Boolean(solution && solution.solution_type === 'graded');
 }
 
-function updateContextSubtitle() {
-  if (!contextSubtitle) return;
-  if (!currentProblem) {
-    contextSubtitle.textContent = 'Open a problem from progress.';
-    return;
-  }
-  if (selectedGradedSolution) {
-    const { score, maxScore } = scoreFromGradingPayload(selectedGradedSolution, selectedGradedSolution.grading_result);
-    const scoreText = score !== undefined && score !== null
-      ? `Reviewing graded submission ${score}${maxScore ? ` / ${maxScore}` : ''}.`
-      : 'Reviewing a graded submission.';
-    contextSubtitle.textContent = `${scoreText} Save Draft to branch into a new editable copy.`;
-    return;
-  }
-  if (currentSolution) {
-    contextSubtitle.textContent = `Editing draft "${currentSolution.title}" for ${currentProblem.id}.`;
-    return;
-  }
-  contextSubtitle.textContent = `Solving ${currentProblem.id}.`;
-}
-
 function updateSolutionActionState() {
   const isFinal = isFinalSolution();
   if (saveToServerBtn) {
@@ -1344,9 +1322,8 @@ async function renderWhiteboardContext(problem, selectedSolution, draftSolutions
   ];
 
   if (contextTitle) {
-    contextTitle.textContent = problem ? problem.title : 'Whiteboard';
+    contextTitle.textContent = problem?.id || 'Whiteboard';
   }
-  updateContextSubtitle();
   renderSolutionBrowser();
   updateSolutionActionState();
 
@@ -1398,7 +1375,7 @@ async function loadWhiteboardContext() {
       );
     }
   } catch (error) {
-    if (contextSubtitle) contextSubtitle.textContent = error.message;
+    if (contextTitle) contextTitle.textContent = error.message;
   }
 }
 
@@ -1450,7 +1427,6 @@ async function saveCurrentSolution({ saveAs = false, titleOverride = null } = {}
     if (problemImage) problemImage.removeAttribute('src');
     if (solutionReferencePanel) solutionReferencePanel.classList.add('hidden');
     if (solutionImage) solutionImage.removeAttribute('src');
-    updateContextSubtitle();
     renderSolutionBrowser();
     replaceBrowserUrl(`/whiteboard.html?solution_id=${encodeURIComponent(data.solution.id)}`);
     return data.solution;
@@ -1589,7 +1565,6 @@ if (gradeSolutionBtn) {
       setReadOnlyMode(true);
       availableFinalSolutions = [data.solution, ...availableFinalSolutions.filter(item => item.id !== data.solution.id)];
       availableSolutions = [...availableDraftSolutions, ...availableFinalSolutions];
-      updateContextSubtitle();
       renderSolutionBrowser();
       if (problemReference) problemReference.classList.add('hidden');
       if (problemImage) problemImage.removeAttribute('src');
