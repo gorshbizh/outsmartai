@@ -112,7 +112,7 @@ let fixedCanvasWidth = 0;
 let fixedCanvasHeight = 0;
 
 /* History stacks */
-const history = [];      // Array<Stroke>
+const strokeHistory = [];      // Array<Stroke>
 const redoStack = [];    // Array<Stroke>
 const textBoxes = [];
 
@@ -218,6 +218,18 @@ function preventCanvasGesture(evt) {
   }
 }
 
+function replaceBrowserUrl(url) {
+  try {
+    if (window.History?.prototype?.replaceState) {
+      window.History.prototype.replaceState.call(window.history, null, '', url);
+    } else {
+      window.history.replaceState(null, '', url);
+    }
+  } catch (error) {
+    console.warn('Draft saved, but the browser URL could not be updated.', error);
+  }
+}
+
 function lerp(a, b, t) { return a + (b - a) * t; }
 
 /* Smoothing: simple moving average with window=2 using lastPoint */
@@ -300,7 +312,7 @@ function fullRedraw() {
   drawPaperImage();
 
   // Redraw all strokes
-  for (const stroke of history) {
+  for (const stroke of strokeHistory) {
     drawStroke(stroke, false);
   }
   needsFullRedraw = false;
@@ -381,7 +393,7 @@ function endStroke(evt) {
     canvas.releasePointerCapture(evt.pointerId);
   } catch {}
   if (currentStroke && currentStroke.points.length > 0) {
-    history.push(currentStroke);
+    strokeHistory.push(currentStroke);
   }
   currentStroke = null;
   lastPoint = null;
@@ -404,8 +416,8 @@ if (bgColorInput) {
 }
 
 undoBtn.addEventListener('click', () => {
-  if (history.length === 0) return;
-  const s = history.pop();
+  if (strokeHistory.length === 0) return;
+  const s = strokeHistory.pop();
   redoStack.push(s);
   fullRedraw();
 });
@@ -413,7 +425,7 @@ undoBtn.addEventListener('click', () => {
 redoBtn.addEventListener('click', () => {
   if (redoStack.length === 0) return;
   const s = redoStack.pop();
-  history.push(s);
+  strokeHistory.push(s);
   fullRedraw();
 });
 
@@ -940,7 +952,7 @@ function serializeTextBoxes() {
 
 function serializeCanvasData() {
   return {
-    strokes: history,
+    strokes: strokeHistory,
     text_boxes: serializeTextBoxes(),
     bg_color: bgColor,
     canvas_width: fixedCanvasWidth,
@@ -1087,7 +1099,7 @@ function setReadOnlyMode(enabled) {
 }
 
 function resetBoardState() {
-  history.length = 0;
+  strokeHistory.length = 0;
   redoStack.length = 0;
   clearTextBoxes();
   setReadOnlyMode(false);
@@ -1135,7 +1147,7 @@ function restoreCanvasData(canvasData) {
   const scaleY = fixedCanvasHeight / sourceHeight;
   const scaleStrokeSize = Math.max(0.1, (scaleX + scaleY) / 2);
 
-  history.length = 0;
+  strokeHistory.length = 0;
   redoStack.length = 0;
   clearTextBoxes();
   if (canvasData.bg_color) {
@@ -1145,7 +1157,7 @@ function restoreCanvasData(canvasData) {
   }
   if (Array.isArray(canvasData.strokes)) {
     canvasData.strokes.forEach(stroke => {
-      history.push({
+      strokeHistory.push({
         ...stroke,
         size: Number(stroke.size) ? Number(stroke.size) * scaleStrokeSize : stroke.size,
         points: Array.isArray(stroke.points)
@@ -1262,8 +1274,8 @@ async function loadWhiteboardContext() {
 }
 
 clearBtn.addEventListener('click', () => {
-  if (history.length === 0 && textBoxes.length === 0) return;
-  history.length = 0;
+  if (strokeHistory.length === 0 && textBoxes.length === 0) return;
+  strokeHistory.length = 0;
   redoStack.length = 0;
   fullRedraw();
   clearTextBoxes();
@@ -1311,7 +1323,7 @@ async function saveCurrentSolution({ saveAs = false, titleOverride = null } = {}
     if (solutionImage) solutionImage.removeAttribute('src');
     updateContextSubtitle();
     renderSolutionBrowser();
-    window.history.replaceState(null, '', `/whiteboard.html?solution_id=${encodeURIComponent(data.solution.id)}`);
+    replaceBrowserUrl(`/whiteboard.html?solution_id=${encodeURIComponent(data.solution.id)}`);
     return data.solution;
   } finally {
     isSavingSolution = false;
@@ -1467,7 +1479,7 @@ if (gradeSolutionBtn) {
 // Analyze with AI functionality
 if (analyzeBtn) {
   analyzeBtn.addEventListener('click', async () => {
-    if (history.length === 0 && textBoxes.length === 0) {
+    if (strokeHistory.length === 0 && textBoxes.length === 0) {
       alert('Please add drawings or text on the whiteboard first!');
       return;
     }
@@ -1981,9 +1993,9 @@ loadWhiteboardContext();
 
 /* Controls state */
 function updateButtonsState() {
-  undoBtn.disabled = history.length === 0;
+  undoBtn.disabled = strokeHistory.length === 0;
   redoBtn.disabled = redoStack.length === 0;
-  clearBtn.disabled = history.length === 0 && textBoxes.length === 0;
+  clearBtn.disabled = strokeHistory.length === 0 && textBoxes.length === 0;
 }
 
 /* SVG Export */
