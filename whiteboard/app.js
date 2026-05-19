@@ -264,9 +264,7 @@ function isLikelyPalmTouch(evt) {
 
 function shouldSuppressTouchForPen(evt) {
   if (getPointerType(evt) !== 'touch') return false;
-  const penIsActive = isDrawing && activeDrawingPointerType === 'pen';
-  const penWasJustUsed = Date.now() - lastPenInputAt < 800;
-  return penIsActive || (penWasJustUsed && isLikelyPalmTouch(evt));
+  return isDrawing && activeDrawingPointerType === 'pen';
 }
 
 function resetActivePointer() {
@@ -417,6 +415,16 @@ function drawStroke(stroke, incremental = false) {
   // Variable width by pressure
   const pressureWidth = (pt) => Math.max(0.5, stroke.size * (0.3 + 0.7 * (pt.p || 0.5)));
 
+  if (stroke.points.length === 1) {
+    const pt = stroke.points[0];
+    ctx.beginPath();
+    ctx.arc(pt.x, pt.y, pressureWidth(pt) / 2, 0, Math.PI * 2);
+    ctx.fillStyle = isEraser ? 'rgba(0,0,0,1)' : stroke.color;
+    ctx.fill();
+    ctx.restore();
+    return;
+  }
+
   if (incremental) {
     const n = stroke.points.length;
     if (n < 2) { ctx.restore(); return; }
@@ -512,6 +520,9 @@ function appendStrokePointFromEvent(evt) {
   const dx = x - prev.x;
   const dy = y - prev.y;
   const dist = Math.hypot(dx, dy);
+  if (dist < 0.05) {
+    return;
+  }
 
   // Densify points based on brush size to keep lines continuous even with low event rates
   const spacing = Math.max(0.5, currentStroke.size * 0.35);
@@ -531,6 +542,14 @@ function appendStrokePointFromEvent(evt) {
   currentStroke.points.push(pt);
   drawStroke(currentStroke, true);
   lastPoint = pt;
+}
+
+function appendFinalStrokePoint(evt) {
+  if (!currentStroke || !currentStroke.points.length) return;
+  appendStrokePointFromEvent(evt);
+  if (currentStroke.points.length === 1) {
+    drawStroke(currentStroke, true);
+  }
 }
 
 function startStroke(evt) {
@@ -608,6 +627,7 @@ function endStroke(evt) {
     canvas.releasePointerCapture(evt.pointerId);
   } catch {}
   if (currentStroke && currentStroke.points.length > 0) {
+    appendFinalStrokePoint(evt);
     strokeHistory.push(currentStroke);
   }
   currentStroke = null;
