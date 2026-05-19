@@ -89,8 +89,16 @@ body.whiteboard-page .app-footer {
   position: fixed;
   top: 16px;
   touch-action: auto;
+  user-select: none;
+  -webkit-user-select: none;
   width: max-content;
   z-index: 40;
+}
+
+.floating-toolbar * {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 
 .toolbar-panel-header {
