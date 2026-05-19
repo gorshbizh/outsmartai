@@ -88,6 +88,9 @@ const ctx = canvas.getContext('2d', { alpha: true, desynchronized: true, willRea
 /* State */
 let dpr = Math.max(1, window.devicePixelRatio || 1);
 let isDrawing = false;
+let activeDrawingPointerId = null;
+let activeDrawingPointerType = null;
+let lastPenInputAt = 0;
 let lastPoint = null;
 let currentStroke = null;
 let needsFullRedraw = true;
@@ -247,6 +250,28 @@ function preventCanvasGesture(evt) {
   if (evt.cancelable) {
     evt.preventDefault();
   }
+}
+
+function getPointerType(evt) {
+  return evt.pointerType || 'mouse';
+}
+
+function isLikelyPalmTouch(evt) {
+  if (getPointerType(evt) !== 'touch') return false;
+  const contactSize = Math.max(Number(evt.width) || 0, Number(evt.height) || 0);
+  return contactSize >= 28;
+}
+
+function shouldSuppressTouchForPen(evt) {
+  if (getPointerType(evt) !== 'touch') return false;
+  const penIsActive = isDrawing && activeDrawingPointerType === 'pen';
+  const penWasJustUsed = Date.now() - lastPenInputAt < 800;
+  return penIsActive || (penWasJustUsed && isLikelyPalmTouch(evt));
+}
+
+function resetActivePointer() {
+  activeDrawingPointerId = null;
+  activeDrawingPointerType = null;
 }
 
 function replaceBrowserUrl(url) {
@@ -455,34 +480,21 @@ function fullRedraw() {
   updateButtonsState();
 }
 
-function startStroke(evt) {
-  if (isTextToolActive && isTextToolActive()) {
-    return;
-  }
-  if (typeof evt.button === 'number' && evt.button !== 0) {
-    return;
-  }
-  preventCanvasGesture(evt);
+function cancelActiveStroke() {
+  if (!isDrawing) return;
   try {
-    canvas.setPointerCapture(evt.pointerId);
+    if (activeDrawingPointerId !== null) {
+      canvas.releasePointerCapture(activeDrawingPointerId);
+    }
   } catch {}
-  isDrawing = true;
-  redoStack.length = 0; // invalidate redo on new action
-
-  const { x, y, p } = getPos(evt);
-  lastPoint = { x, y, p };
-  currentStroke = {
-    tool: toolEraser.checked ? 'eraser' : 'pen',
-    color: colorInput.value,
-    size: Number(sizeInput.value),
-    points: [lastPoint],
-  };
-  drawStroke(currentStroke, true);
+  isDrawing = false;
+  currentStroke = null;
+  lastPoint = null;
+  resetActivePointer();
+  fullRedraw();
 }
 
-function extendStroke(evt) {
-  if (!isDrawing || !currentStroke) return;
-  preventCanvasGesture(evt);
+function appendStrokePointFromEvent(evt) {
   const { x, y, p } = getPos(evt);
 
   // Previous point in the current stroke
@@ -521,8 +533,75 @@ function extendStroke(evt) {
   lastPoint = pt;
 }
 
+function startStroke(evt) {
+  if (isTextToolActive && isTextToolActive()) {
+    return;
+  }
+  if (typeof evt.button === 'number' && evt.button !== 0) {
+    return;
+  }
+  const pointerType = getPointerType(evt);
+  preventCanvasGesture(evt);
+
+  if (isDrawing && activeDrawingPointerId !== evt.pointerId) {
+    if (pointerType === 'pen' && activeDrawingPointerType !== 'pen') {
+      cancelActiveStroke();
+    } else {
+      return;
+    }
+  }
+
+  if (shouldSuppressTouchForPen(evt)) {
+    return;
+  }
+
+  try {
+    canvas.setPointerCapture(evt.pointerId);
+  } catch {}
+  isDrawing = true;
+  activeDrawingPointerId = evt.pointerId;
+  activeDrawingPointerType = pointerType;
+  if (pointerType === 'pen') {
+    lastPenInputAt = Date.now();
+  }
+  redoStack.length = 0; // invalidate redo on new action
+
+  const { x, y, p } = getPos(evt);
+  lastPoint = { x, y, p };
+  currentStroke = {
+    tool: toolEraser.checked ? 'eraser' : 'pen',
+    color: colorInput.value,
+    size: Number(sizeInput.value),
+    points: [lastPoint],
+  };
+  drawStroke(currentStroke, true);
+}
+
+function extendStroke(evt) {
+  if (!isDrawing || !currentStroke) return;
+  if (evt.pointerId !== activeDrawingPointerId) {
+    if (getPointerType(evt) === 'touch') {
+      preventCanvasGesture(evt);
+    }
+    return;
+  }
+  preventCanvasGesture(evt);
+  if (activeDrawingPointerType === 'pen') {
+    lastPenInputAt = Date.now();
+  }
+
+  const events = typeof evt.getCoalescedEvents === 'function' ? evt.getCoalescedEvents() : [evt];
+  events.forEach(pointerEvent => appendStrokePointFromEvent(pointerEvent));
+}
+
 function endStroke(evt) {
   if (!isDrawing) return;
+  if (evt.pointerId !== activeDrawingPointerId) {
+    if (getPointerType(evt) === 'touch') {
+      preventCanvasGesture(evt);
+    }
+    return;
+  }
   preventCanvasGesture(evt);
   isDrawing = false;
   try {
@@ -533,6 +612,7 @@ function endStroke(evt) {
   }
   currentStroke = null;
   lastPoint = null;
+  resetActivePointer();
   updateButtonsState();
 }
 
