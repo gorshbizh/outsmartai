@@ -90,6 +90,7 @@ let dpr = Math.max(1, window.devicePixelRatio || 1);
 let isDrawing = false;
 let activeDrawingPointerId = null;
 let activeDrawingPointerType = null;
+let activeStrokeStartedAt = 0;
 let lastPenInputAt = 0;
 let lastPoint = null;
 let currentStroke = null;
@@ -270,6 +271,16 @@ function shouldSuppressTouchForPen(evt) {
 function resetActivePointer() {
   activeDrawingPointerId = null;
   activeDrawingPointerType = null;
+  activeStrokeStartedAt = 0;
+}
+
+function eventTimestamp(evt) {
+  const timestamp = Number(evt?.timeStamp);
+  return Number.isFinite(timestamp) ? timestamp : performance.now();
+}
+
+function isStaleStrokeEvent(evt) {
+  return activeStrokeStartedAt > 0 && eventTimestamp(evt) < activeStrokeStartedAt - 0.5;
 }
 
 function replaceBrowserUrl(url) {
@@ -535,6 +546,7 @@ function commitActiveStroke(finalEvent = null) {
 }
 
 function appendStrokePointFromEvent(evt) {
+  if (isStaleStrokeEvent(evt)) return;
   const { x, y, p } = getPos(evt);
 
   // Previous point in the current stroke
@@ -614,6 +626,7 @@ function startStroke(evt) {
   isDrawing = true;
   activeDrawingPointerId = evt.pointerId;
   activeDrawingPointerType = pointerType;
+  activeStrokeStartedAt = eventTimestamp(evt);
   if (pointerType === 'pen') {
     lastPenInputAt = Date.now();
   }
@@ -632,6 +645,7 @@ function startStroke(evt) {
 
 function extendStroke(evt) {
   if (!isDrawing || !currentStroke) return;
+  if (isStaleStrokeEvent(evt)) return;
   if (evt.pointerId !== activeDrawingPointerId) {
     if (getPointerType(evt) === 'touch') {
       preventCanvasGesture(evt);
@@ -649,6 +663,7 @@ function extendStroke(evt) {
 
 function endStroke(evt) {
   if (!isDrawing) return;
+  if (isStaleStrokeEvent(evt)) return;
   if (evt.pointerId !== activeDrawingPointerId) {
     if (getPointerType(evt) === 'touch') {
       preventCanvasGesture(evt);
