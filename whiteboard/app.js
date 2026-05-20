@@ -84,7 +84,7 @@ const ctx = canvas.getContext('2d', { alpha: true, desynchronized: true, willRea
 
 const PEN_SIZE_PX = 3;
 const TEXT_FONT_PX = 25;
-const ERASER_RADIUS_PX = 12;
+const ERASER_RADIUS_PX = 5;
 
 /* State */
 let dpr = Math.max(1, window.devicePixelRatio || 1);
