@@ -232,17 +232,6 @@ body.whiteboard-page .app-footer {
   cursor: pointer;
 }
 
-#size {
-  width: 160px;
-}
-
-#sizeVal {
-  font-variant-numeric: tabular-nums;
-  min-width: 56px;
-  text-align: right;
-  color: var(--muted);
-}
-
 button {
   appearance: none;
   border: 1px solid #0d5f59;
@@ -406,9 +395,6 @@ body.whiteboard-page main {
   button,
   .toolbar-progress-link {
     font-size: 13px;
-  }
-  #size {
-    width: 96px;
   }
   main {
     padding: 8px;

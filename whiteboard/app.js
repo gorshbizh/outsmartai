@@ -2,9 +2,9 @@
  * Handwriting Board - Portable JS Webapp
  * License: MIT
  * Features:
- * - Pointer events (mouse, touch, pen) with pressure support
+ * - Pointer events (mouse, touch, pen)
  * - Pen and eraser tools
- * - Adjustable color and size
+ * - Adjustable color with fixed-width drawing
  * - Undo/redo stack
  * - Clear board
  * - Save drafts to server
@@ -21,8 +21,6 @@ const toolbarDragHandle = document.getElementById('toolbar-drag-handle');
 const toolbarCollapseBtn = document.getElementById('toolbar-collapse');
 const toolbarContent = document.getElementById('toolbar-content');
 const colorInput = document.getElementById('color');
-const sizeInput = document.getElementById('size');
-const sizeVal = document.getElementById('sizeVal');
 const undoBtn = document.getElementById('undo');
 const redoBtn = document.getElementById('redo');
 const clearBtn = document.getElementById('clear');
@@ -31,7 +29,6 @@ const gradeSolutionBtn = document.getElementById('gradeSolution');
 const analyzeBtn = document.getElementById('analyze-btn');
 const toolPen = document.getElementById('tool-pen');
 const toolEraser = document.getElementById('tool-eraser');
-const bgColorInput = document.getElementById('bgColor');
 const ossLink = document.getElementById('ossLink');
 const logoutBtn = document.getElementById('logoutBtn');
 const contextTitle = document.getElementById('context-title');
@@ -85,6 +82,10 @@ ossLink.textContent = 'Open Source (MIT)';
 /* Canvas 2D Context */
 const ctx = canvas.getContext('2d', { alpha: true, desynchronized: true, willReadFrequently: false });
 
+const PEN_SIZE_PX = 5;
+const TEXT_FONT_PX = 25;
+const ERASER_RADIUS_PX = 12;
+
 /* State */
 let dpr = Math.max(1, window.devicePixelRatio || 1);
 let isDrawing = false;
@@ -95,8 +96,6 @@ let lastPenInputAt = 0;
 let lastPoint = null;
 let currentStroke = null;
 let needsFullRedraw = true;
-let bgColor = bgColorInput ? bgColorInput.value : '#ffffff';
-canvas.style.backgroundColor = bgColor;
 let currentProblem = null;
 let currentSolution = null;
 let currentUserSolutionId = null;
@@ -122,7 +121,8 @@ let fixedCanvasHeight = 0;
 
 /* History stacks */
 const strokeHistory = [];      // Array<Stroke>
-const redoStack = [];    // Array<Stroke>
+const actionHistory = [];
+const redoStack = [];
 const textBoxes = [];
 const activeStrokeByPointerId = new Map();
 let primaryTouchPointerId = null;
@@ -412,6 +412,59 @@ function screenPxToCanvasPx(value) {
   return value / Math.max(0.1, boardDisplayScale || 1);
 }
 
+function squaredDistance(a, b) {
+  const dx = a.x - b.x;
+  const dy = a.y - b.y;
+  return dx * dx + dy * dy;
+}
+
+function pointToSegmentDistanceSq(point, start, end) {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const lengthSq = dx * dx + dy * dy;
+  if (lengthSq === 0) return squaredDistance(point, start);
+  const t = Math.max(0, Math.min(1, ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSq));
+  return squaredDistance(point, { x: start.x + t * dx, y: start.y + t * dy });
+}
+
+function orientation(a, b, c) {
+  return (b.y - a.y) * (c.x - b.x) - (b.x - a.x) * (c.y - b.y);
+}
+
+function isPointOnSegment(point, start, end) {
+  return (
+    point.x <= Math.max(start.x, end.x)
+    && point.x >= Math.min(start.x, end.x)
+    && point.y <= Math.max(start.y, end.y)
+    && point.y >= Math.min(start.y, end.y)
+  );
+}
+
+function segmentsIntersect(a, b, c, d) {
+  const o1 = orientation(a, b, c);
+  const o2 = orientation(a, b, d);
+  const o3 = orientation(c, d, a);
+  const o4 = orientation(c, d, b);
+  if (o1 * o2 < 0 && o3 * o4 < 0) return true;
+  const eps = 0.0001;
+  return (
+    Math.abs(o1) < eps && isPointOnSegment(c, a, b)
+    || Math.abs(o2) < eps && isPointOnSegment(d, a, b)
+    || Math.abs(o3) < eps && isPointOnSegment(a, c, d)
+    || Math.abs(o4) < eps && isPointOnSegment(b, c, d)
+  );
+}
+
+function segmentToSegmentDistanceSq(a, b, c, d) {
+  if (segmentsIntersect(a, b, c, d)) return 0;
+  return Math.min(
+    pointToSegmentDistanceSq(a, c, d),
+    pointToSegmentDistanceSq(b, c, d),
+    pointToSegmentDistanceSq(c, a, b),
+    pointToSegmentDistanceSq(d, a, b),
+  );
+}
+
 /* Smoothing: simple moving average with window=2 using lastPoint */
 function smoothedPoint(prev, curr) {
   if (!prev) return curr;
@@ -425,22 +478,19 @@ function smoothedPoint(prev, curr) {
 /* Draw a stroke incrementally or full */
 function drawStroke(stroke, incremental = false) {
   if (!stroke || stroke.points.length < 1) return;
+  if (stroke.tool === 'eraser') return;
 
-  const isEraser = stroke.tool === 'eraser';
   ctx.save();
-  ctx.globalCompositeOperation = isEraser ? 'destination-out' : 'source-over';
-  ctx.strokeStyle = isEraser ? 'rgba(0,0,0,1)' : stroke.color;
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.strokeStyle = stroke.color;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
-
-  // Variable width by pressure
-  const pressureWidth = (pt) => Math.max(screenPxToCanvasPx(1.2), stroke.size * (0.3 + 0.7 * (pt.p || 0.5)));
 
   if (stroke.points.length === 1) {
     const pt = stroke.points[0];
     ctx.beginPath();
-    ctx.arc(pt.x, pt.y, Math.max(screenPxToCanvasPx(2.5), pressureWidth(pt) / 2), 0, Math.PI * 2);
-    ctx.fillStyle = isEraser ? 'rgba(0,0,0,1)' : stroke.color;
+    ctx.arc(pt.x, pt.y, stroke.size / 2, 0, Math.PI * 2);
+    ctx.fillStyle = stroke.color;
     ctx.fill();
     ctx.restore();
     return;
@@ -457,7 +507,7 @@ function drawStroke(stroke, incremental = false) {
 
     ctx.beginPath();
     ctx.moveTo(sa.x, sa.y);
-    ctx.lineWidth = pressureWidth(sb);
+    ctx.lineWidth = stroke.size;
     // Quadratic curve between points for smoother line
     const cx = (sa.x + sb.x) / 2;
     const cy = (sa.y + sb.y) / 2;
@@ -476,7 +526,7 @@ function drawStroke(stroke, incremental = false) {
     if (prev) {
       ctx.beginPath();
       ctx.moveTo(prev.x, prev.y);
-      ctx.lineWidth = pressureWidth(sCurr);
+      ctx.lineWidth = stroke.size;
       const cx = (prev.x + sCurr.x) / 2;
       const cy = (prev.y + sCurr.y) / 2;
       ctx.quadraticCurveTo(prev.x, prev.y, cx, cy);
@@ -509,6 +559,83 @@ function fullRedraw() {
   updateButtonsState();
 }
 
+function strokeIntersectsEraserSegment(stroke, start, end, radius) {
+  if (!stroke || stroke.tool !== 'pen' || !Array.isArray(stroke.points) || !stroke.points.length) {
+    return false;
+  }
+  const hitDistance = radius + (Number(stroke.size) || screenPxToCanvasPx(PEN_SIZE_PX)) / 2;
+  const hitDistanceSq = hitDistance * hitDistance;
+  if (stroke.points.length === 1) {
+    return pointToSegmentDistanceSq(stroke.points[0], start, end) <= hitDistanceSq;
+  }
+  for (let i = 1; i < stroke.points.length; i += 1) {
+    if (segmentToSegmentDistanceSq(stroke.points[i - 1], stroke.points[i], start, end) <= hitDistanceSq) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function orderedRemovedStrokes(removed) {
+  return removed
+    .slice()
+    .sort((a, b) => a.index - b.index);
+}
+
+function eraseStrokesBetween(start, end = start, state = null) {
+  const radius = screenPxToCanvasPx(ERASER_RADIUS_PX);
+  const removed = [];
+  for (let i = strokeHistory.length - 1; i >= 0; i -= 1) {
+    if (strokeIntersectsEraserSegment(strokeHistory[i], start, end, radius)) {
+      const [stroke] = strokeHistory.splice(i, 1);
+      const index = state?.strokeIndexAtStart?.get(stroke) ?? i;
+      removed.push({ stroke, index });
+    }
+  }
+  if (removed.length) {
+    if (state?.stroke?.tool === 'eraser') {
+      state.erasedStrokes.push(...removed);
+    } else {
+      actionHistory.push({ type: 'erase', removed: orderedRemovedStrokes(removed) });
+      redoStack.length = 0;
+    }
+    fullRedraw();
+  }
+}
+
+function removeStrokeByReference(stroke) {
+  const index = strokeHistory.lastIndexOf(stroke);
+  if (index !== -1) {
+    strokeHistory.splice(index, 1);
+  }
+}
+
+function restoreRemovedStrokes(removed) {
+  orderedRemovedStrokes(removed).forEach(({ stroke, index }) => {
+    strokeHistory.splice(Math.min(index, strokeHistory.length), 0, stroke);
+  });
+}
+
+function applyAction(action) {
+  if (!action) return;
+  if (action.type === 'draw') {
+    strokeHistory.push(action.stroke);
+  } else if (action.type === 'erase') {
+    action.removed.forEach(({ stroke }) => removeStrokeByReference(stroke));
+  }
+  fullRedraw();
+}
+
+function revertAction(action) {
+  if (!action) return;
+  if (action.type === 'draw') {
+    removeStrokeByReference(action.stroke);
+  } else if (action.type === 'erase') {
+    restoreRemovedStrokes(action.removed);
+  }
+  fullRedraw();
+}
+
 function syncActiveStrokeGlobals(state = null) {
   if (!state) {
     state = Array.from(activeStrokeByPointerId.values()).pop() || null;
@@ -536,6 +663,9 @@ function releaseStrokePointer(state) {
 
 function cancelStrokeState(state, redraw = false) {
   if (!state) return;
+  if (state.stroke?.tool === 'eraser' && state.erasedStrokes?.length) {
+    restoreRemovedStrokes(state.erasedStrokes);
+  }
   activeStrokeByPointerId.delete(state.pointerId);
   if (primaryTouchPointerId === state.pointerId) {
     primaryTouchPointerId = null;
@@ -554,11 +684,14 @@ function commitStrokeState(state, finalEvent = null) {
   if (!state || !activeStrokeByPointerId.has(state.pointerId)) return;
   if (finalEvent && finalEvent.pointerId === state.pointerId && !isStaleStrokeEvent(finalEvent, state)) {
     appendFinalStrokePoint(finalEvent, state);
-  } else if (state.stroke.points.length === 1) {
+  } else if (state.stroke.tool === 'pen' && state.stroke.points.length === 1) {
     drawStroke(state.stroke, true);
   }
-  if (state.stroke.points.length > 0) {
+  if (state.stroke.tool === 'pen' && state.stroke.points.length > 0) {
     strokeHistory.push(state.stroke);
+    actionHistory.push({ type: 'draw', stroke: state.stroke });
+  } else if (state.stroke.tool === 'eraser' && state.erasedStrokes.length > 0) {
+    actionHistory.push({ type: 'erase', removed: orderedRemovedStrokes(state.erasedStrokes) });
   }
   activeStrokeByPointerId.delete(state.pointerId);
   if (primaryTouchPointerId === state.pointerId) {
@@ -586,7 +719,11 @@ function appendStrokePointFromEvent(evt, state = null) {
   if (!prev) {
     const first = { x, y, p };
     stroke.points.push(first);
-    drawStroke(stroke, true);
+    if (stroke.tool === 'eraser') {
+      eraseStrokesBetween(first, first, state);
+    } else {
+      drawStroke(stroke, true);
+    }
     state.lastPoint = first;
     syncActiveStrokeGlobals(state);
     return;
@@ -596,6 +733,15 @@ function appendStrokePointFromEvent(evt, state = null) {
   const dy = y - prev.y;
   const dist = Math.hypot(dx, dy);
   if (dist < 0.05) {
+    return;
+  }
+
+  if (stroke.tool === 'eraser') {
+    const pt = { x, y, p };
+    eraseStrokesBetween(prev, pt, state);
+    stroke.points.push(pt);
+    state.lastPoint = pt;
+    syncActiveStrokeGlobals(state);
     return;
   }
 
@@ -624,22 +770,27 @@ function appendFinalStrokePoint(evt, state = null) {
   state = state || activeStrokeByPointerId.get(evt.pointerId);
   if (!state || !state.stroke.points.length) return;
   appendStrokePointFromEvent(evt, state);
-  if (state.stroke.points.length === 1) {
+  if (state.stroke.tool === 'pen' && state.stroke.points.length === 1) {
     drawStroke(state.stroke, true);
   }
 }
 
 function createStrokeState(evt, pointerType) {
   const firstPoint = getPos(evt);
+  const tool = toolEraser.checked ? 'eraser' : 'pen';
   return {
     pointerId: evt.pointerId,
     pointerType,
     startedAt: eventTimestamp(evt),
     lastPoint: firstPoint,
+    erasedStrokes: [],
+    strokeIndexAtStart: tool === 'eraser'
+      ? new Map(strokeHistory.map((stroke, index) => [stroke, index]))
+      : null,
     stroke: {
-      tool: toolEraser.checked ? 'eraser' : 'pen',
+      tool,
       color: colorInput.value,
-      size: screenPxToCanvasPx(Number(sizeInput.value)),
+      size: screenPxToCanvasPx(PEN_SIZE_PX),
       points: [firstPoint],
     },
   };
@@ -693,7 +844,9 @@ function startStroke(evt) {
   }
   redoStack.length = 0; // invalidate redo on new action
 
-  drawStroke(state.stroke, true);
+  if (state.stroke.tool === 'eraser') {
+    eraseStrokesBetween(state.lastPoint, state.lastPoint, state);
+  }
 }
 
 function extendStroke(evt) {
@@ -726,32 +879,18 @@ function endStroke(evt) {
 }
 
 /* UI wiring */
-sizeVal.textContent = `${sizeInput.value} px`;
-sizeInput.addEventListener('input', () => {
-  sizeVal.textContent = `${sizeInput.value} px`;
-});
-
-// Background color control
-if (bgColorInput) {
-  bgColorInput.addEventListener('input', () => {
-    bgColor = bgColorInput.value;
-    canvas.style.backgroundColor = bgColor;
-    fullRedraw();
-  });
-}
-
 undoBtn.addEventListener('click', () => {
-  if (strokeHistory.length === 0) return;
-  const s = strokeHistory.pop();
-  redoStack.push(s);
-  fullRedraw();
+  if (actionHistory.length === 0) return;
+  const action = actionHistory.pop();
+  redoStack.push(action);
+  revertAction(action);
 });
 
 redoBtn.addEventListener('click', () => {
   if (redoStack.length === 0) return;
-  const s = redoStack.pop();
-  strokeHistory.push(s);
-  fullRedraw();
+  const action = redoStack.pop();
+  actionHistory.push(action);
+  applyAction(action);
 });
 
 /* ========== Typing Tool ========== */
@@ -913,7 +1052,7 @@ function createTextBox(x, y, options = {}) {
   textarea.style.position = 'absolute';
   textarea.style.color = options.color || colorInput.value;
 
-  const fontPx = options.fontSizePx || Number(sizeInput.value) * 5;
+  const fontPx = options.fontSizePx || TEXT_FONT_PX;
   textarea.style.fontSize = `${fontPx}px`;
   
   // Calculate minimum dimensions for the text box
@@ -1135,7 +1274,7 @@ container.addEventListener('pointerdown', (evt) => {
   if (evt.target !== canvas) return;
 
   // Check if canvas has enough space for a text box
-  const fontPx = Number(sizeInput.value) * 5;
+  const fontPx = TEXT_FONT_PX;
   const minRequiredWidth = 80 + 20; // min width + margins
   const minRequiredHeight = Math.max(fontPx * 1.5, 32) + 20; // min height + margins (ensure typing space)
   
@@ -1248,8 +1387,6 @@ function exportBoardDataUrl() {
   const tempCtx = tempCanvas.getContext('2d');
   tempCanvas.width = canvas.width;
   tempCanvas.height = canvas.height;
-  tempCtx.fillStyle = bgColor || '#ffffff';
-  tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
   tempCtx.drawImage(canvas, 0, 0);
   renderTextBoxesToContext(tempCtx);
   return tempCanvas.toDataURL('image/png', 0.9);
@@ -1275,7 +1412,6 @@ function serializeCanvasData() {
   return {
     strokes: strokeHistory,
     text_boxes: serializeTextBoxes(),
-    bg_color: bgColor,
     canvas_width: fixedCanvasWidth,
     canvas_height: fixedCanvasHeight,
     paper_image_source: paperImageSource,
@@ -1388,8 +1524,6 @@ function setReadOnlyMode(enabled) {
     toolPen,
     toolEraser,
     colorInput,
-    sizeInput,
-    bgColorInput,
   ].forEach(element => {
     if (element) element.disabled = readOnlyMode;
   });
@@ -1399,13 +1533,14 @@ function setReadOnlyMode(enabled) {
 }
 
 function resetBoardState() {
+  activeStrokeByPointerId.clear();
+  primaryTouchPointerId = null;
+  resetActivePointer();
   strokeHistory.length = 0;
+  actionHistory.length = 0;
   redoStack.length = 0;
   clearTextBoxes();
   setReadOnlyMode(false);
-  bgColor = bgColorInput ? bgColorInput.value : '#ffffff';
-  if (bgColorInput) bgColorInput.value = bgColor;
-  canvas.style.backgroundColor = bgColor;
   fullRedraw();
   updateButtonsState();
 }
@@ -1443,19 +1578,22 @@ function restoreCanvasData(canvasData) {
   const scaleY = fixedCanvasHeight / sourceHeight;
   const scaleStrokeSize = Math.max(0.1, (scaleX + scaleY) / 2);
 
+  activeStrokeByPointerId.clear();
+  primaryTouchPointerId = null;
+  resetActivePointer();
   strokeHistory.length = 0;
+  actionHistory.length = 0;
   redoStack.length = 0;
   clearTextBoxes();
-  if (canvasData.bg_color) {
-    bgColor = canvasData.bg_color;
-    if (bgColorInput) bgColorInput.value = bgColor;
-    canvas.style.backgroundColor = bgColor;
-  }
   if (Array.isArray(canvasData.strokes)) {
     canvasData.strokes.forEach(stroke => {
+      if (stroke.tool === 'eraser') return;
+      const restoredSize = Number(stroke.size);
       strokeHistory.push({
         ...stroke,
-        size: Number(stroke.size) ? Number(stroke.size) * scaleStrokeSize : stroke.size,
+        size: Number.isFinite(restoredSize) && restoredSize > 0
+          ? restoredSize * scaleStrokeSize
+          : screenPxToCanvasPx(PEN_SIZE_PX),
         points: Array.isArray(stroke.points)
           ? stroke.points.map(point => ({
               x: Number(point.x || 0) * scaleX,
@@ -1464,6 +1602,7 @@ function restoreCanvasData(canvasData) {
             }))
           : [],
       });
+      actionHistory.push({ type: 'draw', stroke: strokeHistory[strokeHistory.length - 1] });
     });
   }
   fullRedraw();
@@ -1570,7 +1709,11 @@ async function loadWhiteboardContext() {
 
 clearBtn.addEventListener('click', () => {
   if (strokeHistory.length === 0 && textBoxes.length === 0) return;
+  activeStrokeByPointerId.clear();
+  primaryTouchPointerId = null;
+  resetActivePointer();
   strokeHistory.length = 0;
+  actionHistory.length = 0;
   redoStack.length = 0;
   fullRedraw();
   clearTextBoxes();
@@ -1785,17 +1928,13 @@ if (analyzeBtn) {
     showResultsPanel();
     showLoading();
     
-    // Create a temporary canvas with background color (same as Save PNG)
+    // Create a temporary canvas matching the saved PNG.
     const tempCanvas = document.createElement('canvas');
     const tempCtx = tempCanvas.getContext('2d');
     
     // Set canvas size to match original
     tempCanvas.width = canvas.width;
     tempCanvas.height = canvas.height;
-    
-    // Fill with background color
-    tempCtx.fillStyle = bgColor || '#ffffff';
-    tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
     
     // Draw the original canvas on top
     tempCtx.drawImage(canvas, 0, 0);
@@ -2303,13 +2442,13 @@ loadWhiteboardContext();
 
 /* Controls state */
 function updateButtonsState() {
-  undoBtn.disabled = strokeHistory.length === 0;
+  undoBtn.disabled = actionHistory.length === 0;
   redoBtn.disabled = redoStack.length === 0;
   clearBtn.disabled = strokeHistory.length === 0 && textBoxes.length === 0;
 }
 
 /* SVG Export */
-function strokesToSVG(strokes, width, height, backgroundColor = '#ffffff') {
+function strokesToSVG(strokes, width, height, backgroundColor = null) {
   const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
   const pathForStroke = (stroke) => {
@@ -2332,18 +2471,11 @@ function strokesToSVG(strokes, width, height, backgroundColor = '#ffffff') {
       prev = sCurr;
     }
 
-    // approximate pressure width by average
-    const avgP = pts.reduce((a, p) => a + (p.p || 0.5), 0) / pts.length || 0.5;
-    const widthPx = Math.max(0.5, stroke.size * (0.3 + 0.7 * avgP));
-
     if (stroke.tool === 'eraser') {
-      // Eraser via mask: represent as white stroke with 'destination-out'-like effect is not directly in plain SVG.
-      // Instead, we emulate by using 'mix-blend-mode: destination-out' which is not standard in all renderers.
-      // For portability, export eraser as transparent stroke on a mask group. Simplify: skip eraser strokes in SVG.
-      // Alternatively draw eraser as white path with stroke-opacity to visually indicate. We'll skip for true transparency.
-      return ''; // skipping eraser strokes ensures they don't add ink in exported SVG
+      return '';
     }
 
+    const widthPx = Number(stroke.size) || PEN_SIZE_PX;
     return `<path d="${esc(d.join(' '))}" fill="none" stroke="${esc(stroke.color)}" stroke-width="${widthPx.toFixed(2)}" stroke-linecap="round" stroke-linejoin="round" />`;
   };
 
