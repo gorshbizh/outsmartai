@@ -124,6 +124,8 @@ let fixedCanvasHeight = 0;
 const strokeHistory = [];      // Array<Stroke>
 const redoStack = [];    // Array<Stroke>
 const textBoxes = [];
+const activeStrokeByPointerId = new Map();
+let primaryTouchPointerId = null;
 
 /* Stroke structure:
 {
@@ -265,13 +267,16 @@ function isLikelyPalmTouch(evt) {
 
 function shouldSuppressTouchForPen(evt) {
   if (getPointerType(evt) !== 'touch') return false;
-  return isDrawing && activeDrawingPointerType === 'pen';
+  return Array.from(activeStrokeByPointerId.values()).some(state => state.pointerType === 'pen');
 }
 
 function resetActivePointer() {
   activeDrawingPointerId = null;
   activeDrawingPointerType = null;
   activeStrokeStartedAt = 0;
+  isDrawing = false;
+  currentStroke = null;
+  lastPoint = null;
 }
 
 function eventTimestamp(evt) {
@@ -279,8 +284,9 @@ function eventTimestamp(evt) {
   return Number.isFinite(timestamp) ? timestamp : performance.now();
 }
 
-function isStaleStrokeEvent(evt) {
-  return activeStrokeStartedAt > 0 && eventTimestamp(evt) < activeStrokeStartedAt - 0.5;
+function isStaleStrokeEvent(evt, state = null) {
+  const startedAt = state ? state.startedAt : activeStrokeStartedAt;
+  return startedAt > 0 && eventTimestamp(evt) < startedAt - 0.5;
 }
 
 function replaceBrowserUrl(url) {
@@ -503,61 +509,86 @@ function fullRedraw() {
   updateButtonsState();
 }
 
-function cancelActiveStroke() {
-  if (!isDrawing) return;
-  try {
-    if (activeDrawingPointerId !== null) {
-      canvas.releasePointerCapture(activeDrawingPointerId);
-    }
-  } catch {}
-  isDrawing = false;
-  currentStroke = null;
-  lastPoint = null;
-  resetActivePointer();
-  fullRedraw();
+function syncActiveStrokeGlobals(state = null) {
+  if (!state) {
+    state = Array.from(activeStrokeByPointerId.values()).pop() || null;
+  }
+  if (!state) {
+    resetActivePointer();
+    return;
+  }
+  isDrawing = true;
+  activeDrawingPointerId = state.pointerId;
+  activeDrawingPointerType = state.pointerType;
+  activeStrokeStartedAt = state.startedAt;
+  currentStroke = state.stroke;
+  lastPoint = state.lastPoint;
 }
 
-function commitActiveStroke(finalEvent = null) {
-  if (!isDrawing || !currentStroke) return;
-  const pointerIdToRelease = activeDrawingPointerId;
-  const pointerTypeToRelease = activeDrawingPointerType;
-  if (finalEvent && finalEvent.pointerId === activeDrawingPointerId) {
-    appendFinalStrokePoint(finalEvent);
-  } else if (currentStroke.points.length === 1) {
-    drawStroke(currentStroke, true);
-  }
-  if (currentStroke.points.length > 0) {
-    strokeHistory.push(currentStroke);
-  }
-  isDrawing = false;
-  currentStroke = null;
-  lastPoint = null;
-  resetActivePointer();
+function releaseStrokePointer(state) {
+  if (!state || state.pointerType === 'pen') return;
   try {
-    if (
-      pointerTypeToRelease !== 'pen'
-      && pointerIdToRelease !== null
-      && canvas.hasPointerCapture?.(pointerIdToRelease)
-    ) {
-      canvas.releasePointerCapture(pointerIdToRelease);
+    if (canvas.hasPointerCapture?.(state.pointerId)) {
+      canvas.releasePointerCapture(state.pointerId);
     }
   } catch {}
+}
+
+function cancelStrokeState(state, redraw = false) {
+  if (!state) return;
+  activeStrokeByPointerId.delete(state.pointerId);
+  if (primaryTouchPointerId === state.pointerId) {
+    primaryTouchPointerId = null;
+  }
+  releaseStrokePointer(state);
+  syncActiveStrokeGlobals();
+  if (redraw) fullRedraw();
+}
+
+function cancelActiveStroke() {
+  const state = activeStrokeByPointerId.get(activeDrawingPointerId);
+  cancelStrokeState(state, true);
+}
+
+function commitStrokeState(state, finalEvent = null) {
+  if (!state || !activeStrokeByPointerId.has(state.pointerId)) return;
+  if (finalEvent && finalEvent.pointerId === state.pointerId && !isStaleStrokeEvent(finalEvent, state)) {
+    appendFinalStrokePoint(finalEvent, state);
+  } else if (state.stroke.points.length === 1) {
+    drawStroke(state.stroke, true);
+  }
+  if (state.stroke.points.length > 0) {
+    strokeHistory.push(state.stroke);
+  }
+  activeStrokeByPointerId.delete(state.pointerId);
+  if (primaryTouchPointerId === state.pointerId) {
+    primaryTouchPointerId = null;
+  }
+  releaseStrokePointer(state);
+  syncActiveStrokeGlobals();
   updateButtonsState();
 }
 
-function appendStrokePointFromEvent(evt) {
-  if (isStaleStrokeEvent(evt)) return;
+function commitActiveStroke(finalEvent = null) {
+  commitStrokeState(activeStrokeByPointerId.get(activeDrawingPointerId), finalEvent);
+}
+
+function appendStrokePointFromEvent(evt, state = null) {
+  state = state || activeStrokeByPointerId.get(evt.pointerId);
+  if (!state || isStaleStrokeEvent(evt, state)) return;
   const { x, y, p } = getPos(evt);
 
   // Previous point in the current stroke
-  const prev = currentStroke.points[currentStroke.points.length - 1];
+  const stroke = state.stroke;
+  const prev = stroke.points[stroke.points.length - 1];
 
   // If no previous point (edge case), start with this one
   if (!prev) {
     const first = { x, y, p };
-    currentStroke.points.push(first);
-    drawStroke(currentStroke, true);
-    lastPoint = first;
+    stroke.points.push(first);
+    drawStroke(stroke, true);
+    state.lastPoint = first;
+    syncActiveStrokeGlobals(state);
     return;
   }
 
@@ -569,31 +600,49 @@ function appendStrokePointFromEvent(evt) {
   }
 
   // Densify points based on brush size to keep lines continuous even with low event rates
-  const spacing = Math.max(0.5, currentStroke.size * 0.35);
+  const spacing = Math.max(0.5, stroke.size * 0.35);
   const steps = Math.floor(dist / spacing);
 
   if (steps > 0) {
     for (let i = 1; i <= steps; i++) {
       const t = i / (steps + 1);
       const ipt = { x: prev.x + dx * t, y: prev.y + dy * t, p: lerp(prev.p, p, t) };
-      currentStroke.points.push(ipt);
+      stroke.points.push(ipt);
       // Draw each interpolated segment to avoid gaps
-      drawStroke(currentStroke, true);
+      drawStroke(stroke, true);
     }
   }
 
   const pt = { x, y, p };
-  currentStroke.points.push(pt);
-  drawStroke(currentStroke, true);
-  lastPoint = pt;
+  stroke.points.push(pt);
+  drawStroke(stroke, true);
+  state.lastPoint = pt;
+  syncActiveStrokeGlobals(state);
 }
 
-function appendFinalStrokePoint(evt) {
-  if (!currentStroke || !currentStroke.points.length) return;
-  appendStrokePointFromEvent(evt);
-  if (currentStroke.points.length === 1) {
-    drawStroke(currentStroke, true);
+function appendFinalStrokePoint(evt, state = null) {
+  state = state || activeStrokeByPointerId.get(evt.pointerId);
+  if (!state || !state.stroke.points.length) return;
+  appendStrokePointFromEvent(evt, state);
+  if (state.stroke.points.length === 1) {
+    drawStroke(state.stroke, true);
   }
+}
+
+function createStrokeState(evt, pointerType) {
+  const firstPoint = getPos(evt);
+  return {
+    pointerId: evt.pointerId,
+    pointerType,
+    startedAt: eventTimestamp(evt),
+    lastPoint: firstPoint,
+    stroke: {
+      tool: toolEraser.checked ? 'eraser' : 'pen',
+      color: colorInput.value,
+      size: screenPxToCanvasPx(Number(sizeInput.value)),
+      points: [firstPoint],
+    },
+  };
 }
 
 function startStroke(evt) {
@@ -606,11 +655,16 @@ function startStroke(evt) {
   const pointerType = getPointerType(evt);
   preventCanvasGesture(evt);
 
-  if (isDrawing) {
-    if (pointerType === 'pen' || evt.pointerId === activeDrawingPointerId) {
-      commitActiveStroke();
-    } else if (activeDrawingPointerId !== evt.pointerId) {
-      return;
+  const existingState = activeStrokeByPointerId.get(evt.pointerId);
+  if (existingState) {
+    commitStrokeState(existingState);
+  }
+
+  if (pointerType === 'pen') {
+    for (const state of Array.from(activeStrokeByPointerId.values())) {
+      if (state.pointerType === 'touch') {
+        cancelStrokeState(state, true);
+      }
     }
   }
 
@@ -618,60 +672,57 @@ function startStroke(evt) {
     return;
   }
 
+  if (pointerType === 'touch') {
+    if (primaryTouchPointerId !== null && primaryTouchPointerId !== evt.pointerId) {
+      return;
+    }
+    primaryTouchPointerId = evt.pointerId;
+  }
+
   if (pointerType !== 'pen') {
     try {
       canvas.setPointerCapture(evt.pointerId);
     } catch {}
   }
-  isDrawing = true;
-  activeDrawingPointerId = evt.pointerId;
-  activeDrawingPointerType = pointerType;
-  activeStrokeStartedAt = eventTimestamp(evt);
+
+  const state = createStrokeState(evt, pointerType);
+  activeStrokeByPointerId.set(evt.pointerId, state);
+  syncActiveStrokeGlobals(state);
   if (pointerType === 'pen') {
     lastPenInputAt = Date.now();
   }
   redoStack.length = 0; // invalidate redo on new action
 
-  const { x, y, p } = getPos(evt);
-  lastPoint = { x, y, p };
-  currentStroke = {
-    tool: toolEraser.checked ? 'eraser' : 'pen',
-    color: colorInput.value,
-    size: screenPxToCanvasPx(Number(sizeInput.value)),
-    points: [lastPoint],
-  };
-  drawStroke(currentStroke, true);
+  drawStroke(state.stroke, true);
 }
 
 function extendStroke(evt) {
-  if (!isDrawing || !currentStroke) return;
-  if (isStaleStrokeEvent(evt)) return;
-  if (evt.pointerId !== activeDrawingPointerId) {
+  const state = activeStrokeByPointerId.get(evt.pointerId);
+  if (!state || isStaleStrokeEvent(evt, state)) {
     if (getPointerType(evt) === 'touch') {
       preventCanvasGesture(evt);
     }
     return;
   }
   preventCanvasGesture(evt);
-  if (activeDrawingPointerType === 'pen') {
+  if (state.pointerType === 'pen') {
     lastPenInputAt = Date.now();
   }
 
   const events = typeof evt.getCoalescedEvents === 'function' ? evt.getCoalescedEvents() : [evt];
-  events.forEach(pointerEvent => appendStrokePointFromEvent(pointerEvent));
+  events.forEach(pointerEvent => appendStrokePointFromEvent(pointerEvent, state));
 }
 
 function endStroke(evt) {
-  if (!isDrawing) return;
-  if (isStaleStrokeEvent(evt)) return;
-  if (evt.pointerId !== activeDrawingPointerId) {
+  const state = activeStrokeByPointerId.get(evt.pointerId);
+  if (!state || isStaleStrokeEvent(evt, state)) {
     if (getPointerType(evt) === 'touch') {
       preventCanvasGesture(evt);
     }
     return;
   }
   preventCanvasGesture(evt);
-  commitActiveStroke(evt);
+  commitStrokeState(state, evt);
 }
 
 /* UI wiring */
@@ -2225,6 +2276,14 @@ canvas.addEventListener('pointerup', endStroke, canvasPointerOptions);
 canvas.addEventListener('pointercancel', endStroke, canvasPointerOptions);
 canvas.addEventListener('pointerleave', endStroke, canvasPointerOptions);
 canvas.addEventListener('lostpointercapture', endStroke, canvasPointerOptions);
+
+['touchstart', 'touchmove', 'touchend', 'touchcancel'].forEach(eventName => {
+  canvas.addEventListener(eventName, preventCanvasGesture, canvasPointerOptions);
+  container.addEventListener(eventName, preventCanvasGesture, canvasPointerOptions);
+});
+['gesturestart', 'gesturechange', 'gestureend'].forEach(eventName => {
+  container.addEventListener(eventName, preventCanvasGesture, canvasPointerOptions);
+});
 
 /* Keep the same drawing coordinates while fitting the visible board to the device. */
 if (window.ResizeObserver) {
