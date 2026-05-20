@@ -607,7 +607,7 @@ function startStroke(evt) {
   preventCanvasGesture(evt);
 
   if (isDrawing) {
-    if (pointerType === 'pen') {
+    if (pointerType === 'pen' || evt.pointerId === activeDrawingPointerId) {
       commitActiveStroke();
     } else if (activeDrawingPointerId !== evt.pointerId) {
       return;
