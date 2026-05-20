@@ -82,7 +82,7 @@ ossLink.textContent = 'Open Source (MIT)';
 /* Canvas 2D Context */
 const ctx = canvas.getContext('2d', { alpha: true, desynchronized: true, willReadFrequently: false });
 
-const PEN_SIZE_PX = 5;
+const PEN_SIZE_PX = 3;
 const TEXT_FONT_PX = 25;
 const ERASER_RADIUS_PX = 12;
 
