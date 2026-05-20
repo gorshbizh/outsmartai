@@ -391,6 +391,10 @@ function setupFloatingToolbar() {
 
 function lerp(a, b, t) { return a + (b - a) * t; }
 
+function screenPxToCanvasPx(value) {
+  return value / Math.max(0.1, boardDisplayScale || 1);
+}
+
 /* Smoothing: simple moving average with window=2 using lastPoint */
 function smoothedPoint(prev, curr) {
   if (!prev) return curr;
@@ -413,12 +417,12 @@ function drawStroke(stroke, incremental = false) {
   ctx.lineJoin = 'round';
 
   // Variable width by pressure
-  const pressureWidth = (pt) => Math.max(0.5, stroke.size * (0.3 + 0.7 * (pt.p || 0.5)));
+  const pressureWidth = (pt) => Math.max(screenPxToCanvasPx(1.2), stroke.size * (0.3 + 0.7 * (pt.p || 0.5)));
 
   if (stroke.points.length === 1) {
     const pt = stroke.points[0];
     ctx.beginPath();
-    ctx.arc(pt.x, pt.y, pressureWidth(pt) / 2, 0, Math.PI * 2);
+    ctx.arc(pt.x, pt.y, Math.max(screenPxToCanvasPx(2.5), pressureWidth(pt) / 2), 0, Math.PI * 2);
     ctx.fillStyle = isEraser ? 'rgba(0,0,0,1)' : stroke.color;
     ctx.fill();
     ctx.restore();
@@ -502,6 +506,34 @@ function cancelActiveStroke() {
   fullRedraw();
 }
 
+function commitActiveStroke(finalEvent = null) {
+  if (!isDrawing || !currentStroke) return;
+  const pointerIdToRelease = activeDrawingPointerId;
+  const pointerTypeToRelease = activeDrawingPointerType;
+  if (finalEvent && finalEvent.pointerId === activeDrawingPointerId) {
+    appendFinalStrokePoint(finalEvent);
+  } else if (currentStroke.points.length === 1) {
+    drawStroke(currentStroke, true);
+  }
+  if (currentStroke.points.length > 0) {
+    strokeHistory.push(currentStroke);
+  }
+  isDrawing = false;
+  currentStroke = null;
+  lastPoint = null;
+  resetActivePointer();
+  try {
+    if (
+      pointerTypeToRelease !== 'pen'
+      && pointerIdToRelease !== null
+      && canvas.hasPointerCapture?.(pointerIdToRelease)
+    ) {
+      canvas.releasePointerCapture(pointerIdToRelease);
+    }
+  } catch {}
+  updateButtonsState();
+}
+
 function appendStrokePointFromEvent(evt) {
   const { x, y, p } = getPos(evt);
 
@@ -562,10 +594,10 @@ function startStroke(evt) {
   const pointerType = getPointerType(evt);
   preventCanvasGesture(evt);
 
-  if (isDrawing && activeDrawingPointerId !== evt.pointerId) {
-    if (pointerType === 'pen' && activeDrawingPointerType !== 'pen') {
-      cancelActiveStroke();
-    } else {
+  if (isDrawing) {
+    if (pointerType === 'pen') {
+      commitActiveStroke();
+    } else if (activeDrawingPointerId !== evt.pointerId) {
       return;
     }
   }
@@ -574,9 +606,11 @@ function startStroke(evt) {
     return;
   }
 
-  try {
-    canvas.setPointerCapture(evt.pointerId);
-  } catch {}
+  if (pointerType !== 'pen') {
+    try {
+      canvas.setPointerCapture(evt.pointerId);
+    } catch {}
+  }
   isDrawing = true;
   activeDrawingPointerId = evt.pointerId;
   activeDrawingPointerType = pointerType;
@@ -590,7 +624,7 @@ function startStroke(evt) {
   currentStroke = {
     tool: toolEraser.checked ? 'eraser' : 'pen',
     color: colorInput.value,
-    size: Number(sizeInput.value),
+    size: screenPxToCanvasPx(Number(sizeInput.value)),
     points: [lastPoint],
   };
   drawStroke(currentStroke, true);
@@ -622,18 +656,7 @@ function endStroke(evt) {
     return;
   }
   preventCanvasGesture(evt);
-  isDrawing = false;
-  try {
-    canvas.releasePointerCapture(evt.pointerId);
-  } catch {}
-  if (currentStroke && currentStroke.points.length > 0) {
-    appendFinalStrokePoint(evt);
-    strokeHistory.push(currentStroke);
-  }
-  currentStroke = null;
-  lastPoint = null;
-  resetActivePointer();
-  updateButtonsState();
+  commitActiveStroke(evt);
 }
 
 /* UI wiring */
@@ -2186,6 +2209,7 @@ canvas.addEventListener('pointerrawupdate', extendStroke, canvasPointerOptions);
 canvas.addEventListener('pointerup', endStroke, canvasPointerOptions);
 canvas.addEventListener('pointercancel', endStroke, canvasPointerOptions);
 canvas.addEventListener('pointerleave', endStroke, canvasPointerOptions);
+canvas.addEventListener('lostpointercapture', endStroke, canvasPointerOptions);
 
 /* Keep the same drawing coordinates while fitting the visible board to the device. */
 if (window.ResizeObserver) {
